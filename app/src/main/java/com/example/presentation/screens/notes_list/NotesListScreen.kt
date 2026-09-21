@@ -21,35 +21,51 @@ import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.lazy.staggeredgrid.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.ViewAgenda
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.example.domain.model.Note
 import com.example.domain.model.NotesViewMode
 import com.example.presentation.components.FilterBottomSheet
 import com.example.presentation.components.NoteCard
 import com.example.presentation.components.PulsingFab
+import kotlinx.coroutines.flow.flowOf
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -65,6 +81,26 @@ fun NotesListScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+    var showMenu by remember { mutableStateOf(false) }
+
+    var showPinDialog by remember { mutableStateOf(false) }
+    var pendingNoteId by remember { mutableStateOf<Long?>(null) }
+    var enteredPin by remember { mutableStateOf("") }
+    var pinError by remember { mutableStateOf(false) }
+
+    val isPinEnabled by (viewModel.preferencesManager?.isPinEnabledFlow ?: flowOf(false)).collectAsState(initial = false)
+    val actualPin by (viewModel.preferencesManager?.pinCodeFlow ?: flowOf("0000")).collectAsState(initial = "0000")
+
+    val onNoteCardClick = { note: Note ->
+        if (note.isLocked && isPinEnabled) {
+            pendingNoteId = note.id
+            enteredPin = ""
+            pinError = false
+            showPinDialog = true
+        } else {
+            onNoteClick(note.id)
+        }
+    }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -101,8 +137,39 @@ fun NotesListScreen(
                     IconButton(onClick = { viewModel.setFilterSheetOpen(true) }) {
                         Icon(Icons.Default.FilterList, contentDescription = "Фильтры")
                     }
-                    IconButton(onClick = onSettingsClick) {
-                        Icon(Icons.Default.Settings, contentDescription = "Настройки")
+                    Box {
+                        IconButton(onClick = { showMenu = true }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "Ещё")
+                        }
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Архив") },
+                                leadingIcon = { Icon(Icons.Default.Archive, contentDescription = null) },
+                                onClick = {
+                                    showMenu = false
+                                    onArchiveClick()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Корзина") },
+                                leadingIcon = { Icon(Icons.Default.DeleteOutline, contentDescription = null) },
+                                onClick = {
+                                    showMenu = false
+                                    onTrashClick()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Настройки") },
+                                leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) },
+                                onClick = {
+                                    showMenu = false
+                                    onSettingsClick()
+                                }
+                            )
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -189,7 +256,7 @@ fun NotesListScreen(
                                 ) {
                                     NoteCard(
                                         note = note,
-                                        onClick = { onNoteClick(note.id) }
+                                        onClick = { onNoteCardClick(note) }
                                     )
                                 }
                             }
@@ -204,7 +271,7 @@ fun NotesListScreen(
                             items(state.notes, key = { it.id }) { note ->
                                 NoteCard(
                                     note = note,
-                                    onClick = { onNoteClick(note.id) }
+                                    onClick = { onNoteCardClick(note) }
                                 )
                             }
                         }
@@ -212,6 +279,68 @@ fun NotesListScreen(
                 }
             }
         }
+    }
+
+    if (showPinDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showPinDialog = false
+                pendingNoteId = null
+            },
+            title = { Text("Заметка защищена") },
+            text = {
+                Column {
+                    Text(
+                        text = "Введите PIN-код для открытия заметки:",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = enteredPin,
+                        onValueChange = {
+                            if (it.length <= 4 && it.all { char -> char.isDigit() }) {
+                                enteredPin = it
+                                pinError = false
+                            }
+                        },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                        visualTransformation = PasswordVisualTransformation(),
+                        singleLine = true,
+                        isError = pinError,
+                        label = { Text("PIN-код") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (pinError) {
+                        Text(
+                            text = "Неверный PIN-код",
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    if (enteredPin == actualPin) {
+                        showPinDialog = false
+                        pendingNoteId?.let { onNoteClick(it) }
+                        pendingNoteId = null
+                    } else {
+                        pinError = true
+                    }
+                }) {
+                    Text("Открыть")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showPinDialog = false
+                    pendingNoteId = null
+                }) {
+                    Text("Отмена")
+                }
+            }
+        )
     }
 
     if (state.isFilterSheetOpen) {

@@ -30,6 +30,8 @@ import com.example.data.local.NoteDatabase
 import com.example.data.preferences.UserPreferencesManager
 import com.example.data.repository.NoteRepositoryImpl
 import com.example.presentation.navigation.Screen
+import com.example.presentation.screens.archive.ArchiveScreen
+import com.example.presentation.screens.archive.ArchiveViewModel
 import com.example.presentation.screens.editor.NoteEditorScreen
 import com.example.presentation.screens.editor.NoteEditorViewModel
 import com.example.presentation.screens.notes_list.NotesListScreen
@@ -37,8 +39,11 @@ import com.example.presentation.screens.notes_list.NotesListViewModel
 import com.example.presentation.screens.search.SearchScreen
 import com.example.presentation.screens.search.SearchViewModel
 import com.example.presentation.screens.settings.SettingsScreen
+import com.example.presentation.screens.trash.TrashScreen
+import com.example.presentation.screens.trash.TrashViewModel
 import com.example.ui.theme.AppThemePreset
 import com.example.ui.theme.NoteAppTheme
+import com.example.widget.NotesAppWidgetProvider
 import java.util.Locale
 
 class MainActivity : ComponentActivity() {
@@ -86,6 +91,20 @@ class MainActivity : ComponentActivity() {
     private fun AppNavigation() {
         val navController = rememberNavController()
 
+        val widgetAction = intent?.getStringExtra(NotesAppWidgetProvider.EXTRA_ACTION)
+        val widgetNoteId = intent?.getLongExtra(NotesAppWidgetProvider.EXTRA_NOTE_ID, 0L) ?: 0L
+
+        androidx.compose.runtime.LaunchedEffect(widgetAction, widgetNoteId) {
+            if (widgetAction == NotesAppWidgetProvider.ACTION_NEW_NOTE) {
+                intent?.removeExtra(NotesAppWidgetProvider.EXTRA_ACTION)
+                navController.navigate(Screen.NoteEditor.createRoute(0L))
+            } else if (widgetAction == NotesAppWidgetProvider.ACTION_OPEN_NOTE && widgetNoteId > 0L) {
+                intent?.removeExtra(NotesAppWidgetProvider.EXTRA_ACTION)
+                intent?.removeExtra(NotesAppWidgetProvider.EXTRA_NOTE_ID)
+                navController.navigate(Screen.NoteEditor.createRoute(widgetNoteId))
+            }
+        }
+
         NavHost(
             navController = navController,
             startDestination = Screen.NotesList.route,
@@ -93,7 +112,7 @@ class MainActivity : ComponentActivity() {
         ) {
             composable(Screen.NotesList.route) {
                 val listViewModel: NotesListViewModel = viewModel {
-                    NotesListViewModel(repository)
+                    NotesListViewModel(repository, preferencesManager)
                 }
 
                 NotesListScreen(
@@ -110,8 +129,12 @@ class MainActivity : ComponentActivity() {
                     onSettingsClick = {
                         navController.navigate(Screen.Settings.route)
                     },
-                    onArchiveClick = {},
-                    onTrashClick = {}
+                    onArchiveClick = {
+                        navController.navigate(Screen.Archive.route)
+                    },
+                    onTrashClick = {
+                        navController.navigate(Screen.Trash.route)
+                    }
                 )
             }
 
@@ -146,9 +169,35 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
+            composable(Screen.Archive.route) {
+                val archiveViewModel: ArchiveViewModel = viewModel {
+                    ArchiveViewModel(repository)
+                }
+
+                ArchiveScreen(
+                    viewModel = archiveViewModel,
+                    onNoteClick = { noteId ->
+                        navController.navigate(Screen.NoteEditor.createRoute(noteId))
+                    },
+                    onBack = { navController.popBackStack() }
+                )
+            }
+
+            composable(Screen.Trash.route) {
+                val trashViewModel: TrashViewModel = viewModel {
+                    TrashViewModel(repository)
+                }
+
+                TrashScreen(
+                    viewModel = trashViewModel,
+                    onBack = { navController.popBackStack() }
+                )
+            }
+
             composable(Screen.Settings.route) {
                 SettingsScreen(
                     preferencesManager = preferencesManager,
+                    repository = repository,
                     onBack = { navController.popBackStack() }
                 )
             }
@@ -196,6 +245,11 @@ class MainActivity : ComponentActivity() {
 
         speechRecognizer?.startListening(intent)
         Toast.makeText(this, "Слушаю...", Toast.LENGTH_SHORT).show()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        NotesAppWidgetProvider.notifyDataChanged(this)
     }
 
     override fun onDestroy() {

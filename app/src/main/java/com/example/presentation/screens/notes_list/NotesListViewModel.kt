@@ -2,6 +2,7 @@ package com.example.presentation.screens.notes_list
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.data.preferences.UserPreferencesManager
 import com.example.domain.model.DateFilter
 import com.example.domain.model.FilterState
 import com.example.domain.model.Note
@@ -25,7 +26,8 @@ data class NotesListUiState(
 )
 
 class NotesListViewModel(
-    private val repository: NoteRepository
+    private val repository: NoteRepository,
+    val preferencesManager: UserPreferencesManager? = null
 ) : ViewModel() {
 
     private val _filterState = MutableStateFlow(FilterState())

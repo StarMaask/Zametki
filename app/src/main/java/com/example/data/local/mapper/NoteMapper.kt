@@ -22,7 +22,9 @@ object NoteMapper {
             createdAt = note.createdAt,
             updatedAt = note.updatedAt,
             tagsJson = jsonArray.toString(),
-            isCheckedItemsList = note.isCheckedItemsList
+            isCheckedItemsList = note.isCheckedItemsList,
+            imageUrisJson = JSONArray().apply { note.imageUris.forEach { put(it) } }.toString(),
+            isLocked = note.isLocked
         )
     }
 
@@ -32,6 +34,16 @@ object NoteMapper {
             val jsonArray = JSONArray(entity.tagsJson)
             for (i in 0 until jsonArray.length()) {
                 tagsList.add(jsonArray.getString(i))
+            }
+        } catch (_: Exception) {
+            // fallback
+        }
+
+        val imageUrisList = mutableListOf<String>()
+        try {
+            val jsonArray = JSONArray(entity.imageUrisJson)
+            for (i in 0 until jsonArray.length()) {
+                imageUrisList.add(jsonArray.getString(i))
             }
         } catch (_: Exception) {
             // fallback
@@ -50,7 +62,9 @@ object NoteMapper {
             createdAt = entity.createdAt,
             updatedAt = entity.updatedAt,
             tags = tagsList,
-            isCheckedItemsList = entity.isCheckedItemsList
+            isCheckedItemsList = entity.isCheckedItemsList,
+            imageUris = imageUrisList,
+            isLocked = entity.isLocked
         )
     }
 }

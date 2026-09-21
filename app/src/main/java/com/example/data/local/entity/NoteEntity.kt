@@ -31,5 +31,7 @@ data class NoteEntity(
     val createdAt: Long,
     val updatedAt: Long,
     val tagsJson: String = "[]", // Храним список тегов компактно
-    val isCheckedItemsList: Boolean = false
+    val isCheckedItemsList: Boolean = false,
+    val imageUrisJson: String = "[]",
+    val isLocked: Boolean = false
 )

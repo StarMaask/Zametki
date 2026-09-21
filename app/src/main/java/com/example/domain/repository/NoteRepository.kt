@@ -17,4 +17,6 @@ interface NoteRepository {
     suspend fun togglePin(noteId: Long, isPinned: Boolean)
     suspend fun toggleArchive(noteId: Long, isArchived: Boolean)
     fun searchNotes(query: String): Flow<List<Note>>
+    suspend fun getAllActiveNotesList(): List<Note>
+    suspend fun importNotes(notes: List<Note>)
 }

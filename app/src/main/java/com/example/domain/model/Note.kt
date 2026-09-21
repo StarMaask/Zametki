@@ -16,7 +16,9 @@ data class Note(
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
     val tags: List<String> = emptyList(),
-    val isCheckedItemsList: Boolean = false
+    val isCheckedItemsList: Boolean = false,
+    val imageUris: List<String> = emptyList(),
+    val isLocked: Boolean = false
 )
 
 /**

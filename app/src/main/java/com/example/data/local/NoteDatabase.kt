@@ -13,7 +13,7 @@ import com.example.data.local.entity.NoteFtsEntity
         NoteEntity::class,
         NoteFtsEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class NoteDatabase : RoomDatabase() {

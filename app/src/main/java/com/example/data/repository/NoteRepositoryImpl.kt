@@ -85,4 +85,13 @@ class NoteRepositoryImpl(
     override suspend fun toggleArchive(noteId: Long, isArchived: Boolean) {
         noteDao.setArchived(noteId, isArchived)
     }
+
+    override suspend fun getAllActiveNotesList(): List<Note> {
+        return noteDao.getAllActiveNotesList().map { NoteMapper.toDomain(it) }
+    }
+
+    override suspend fun importNotes(notes: List<Note>) {
+        val entities = notes.map { NoteMapper.toEntity(it.copy(id = 0)) }
+        noteDao.insertNotesList(entities)
+    }
 }

@@ -18,6 +18,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Alarm
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -93,18 +95,75 @@ fun NoteCard(
                         modifier = Modifier.weight(1f, fill = false)
                     )
 
-                    if (note.isPinned) {
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Icon(
-                            imageVector = Icons.Default.PushPin,
-                            contentDescription = "Закреплено",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(16.dp)
-                        )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (note.isLocked) {
+                            Icon(
+                                imageVector = Icons.Default.Lock,
+                                contentDescription = "Защищено PIN-кодом",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                        if (note.isPinned) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Icon(
+                                imageVector = Icons.Default.PushPin,
+                                contentDescription = "Закреплено",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
                     }
                 }
 
-                if (note.content.isNotBlank()) {
+                if (note.isLocked) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "🔒 Заметка защищена PIN-кодом",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                } else if (note.isCheckedItemsList && note.content.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    val previewItems = note.content.lines().filter { it.isNotBlank() }.take(3)
+                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        previewItems.forEach { line ->
+                            val isDone = line.startsWith("[x] ") || line.startsWith("[X] ")
+                            val text = when {
+                                line.startsWith("[x] ") -> line.removePrefix("[x] ")
+                                line.startsWith("[X] ") -> line.removePrefix("[X] ")
+                                line.startsWith("[ ] ") -> line.removePrefix("[ ] ")
+                                else -> line
+                            }
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(12.dp)
+                                        .clip(RoundedCornerShape(3.dp))
+                                        .background(
+                                            if (isDone) MaterialTheme.colorScheme.primary else Color.Transparent
+                                        )
+                                        .then(
+                                            if (!isDone) {
+                                                Modifier.background(MaterialTheme.colorScheme.outline.copy(alpha = 0.4f), RoundedCornerShape(3.dp))
+                                            } else Modifier
+                                        )
+                                )
+                                Text(
+                                    text = text,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (isDone) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textDecoration = if (isDone) androidx.compose.ui.text.style.TextDecoration.LineThrough else null,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                } else if (note.content.isNotBlank()) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = note.content,
@@ -154,8 +213,28 @@ fun NoteCard(
                         color = MaterialTheme.colorScheme.outline
                     )
 
-                    if (note.reminderTime != null) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        if (note.imageUris.isNotEmpty()) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Image,
+                                    contentDescription = "Прикреплены изображения",
+                                    tint = MaterialTheme.colorScheme.outline,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text(
+                                    text = note.imageUris.size.toString(),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.outline
+                                )
+                            }
+                        }
+
+                        if (note.reminderTime != null) {
                             Icon(
                                 imageVector = Icons.Default.Alarm,
                                 contentDescription = "Напоминание",
