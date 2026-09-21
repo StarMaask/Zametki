@@ -43,6 +43,9 @@ interface NoteDao {
     @Query("SELECT DISTINCT folder FROM notes WHERE folder IS NOT NULL AND folder != '' AND isDeleted = 0")
     fun getAllFolders(): Flow<List<String>>
 
+    @Query("SELECT * FROM notes WHERE isDeleted = 0 AND isArchived = 0 ORDER BY updatedAt DESC LIMIT 1")
+    suspend fun getLatestActiveNote(): NoteEntity?
+
     @Query("SELECT * FROM notes")
     suspend fun getAllNotesForBackup(): List<NoteEntity>
 }

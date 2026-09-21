@@ -36,6 +36,28 @@ data class NoteEditorUiState(
 
     val charCount: Int
         get() = content.length
+
+    fun toDomainNote(): Note {
+        val checklistJson = if (checkList.isNotEmpty()) kotlinx.serialization.json.Json.encodeToString(checkList) else ""
+        val imageUrisJson = if (imageUris.isNotEmpty()) kotlinx.serialization.json.Json.encodeToString(imageUris) else ""
+        return Note(
+            id = noteId,
+            title = title,
+            content = content,
+            colorHex = colorHex,
+            isPinned = isPinned,
+            isArchived = isArchived,
+            isDeleted = false,
+            createdAt = createdAt,
+            updatedAt = updatedAt,
+            reminderTime = reminderTime,
+            tags = tags,
+            checkListJson = checklistJson,
+            imageUrisJson = imageUrisJson,
+            audioUri = audioUri,
+            folder = folder
+        )
+    }
 }
 
 class NoteEditorViewModel(
@@ -232,6 +254,7 @@ class NoteEditorViewModel(
                 } else if (reminderTime == null) {
                     ReminderScheduler.cancelReminder(context, savedId)
                 }
+                com.example.widget.NotesAppWidgetProvider.notifyDataChanged(context)
             }
 
             _uiState.update { it.copy(noteId = savedId, isSaved = true) }
@@ -249,6 +272,7 @@ class NoteEditorViewModel(
                 }
                 if (context != null) {
                     ReminderScheduler.cancelReminder(context, id)
+                    com.example.widget.NotesAppWidgetProvider.notifyDataChanged(context)
                 }
             }
             onCompleted()

@@ -100,6 +100,20 @@ class MainActivity : ComponentActivity() {
                     } else {
                         val navController = rememberNavController()
 
+                        LaunchedEffect(Unit) {
+                            val openNoteId = intent.getLongExtra("open_note_id", 0L)
+                            val widgetNoteId = intent.getLongExtra(com.example.widget.NotesAppWidgetProvider.EXTRA_NOTE_ID, 0L)
+                            val widgetAction = intent.getStringExtra(com.example.widget.NotesAppWidgetProvider.EXTRA_ACTION)
+
+                            if (openNoteId > 0L) {
+                                navController.navigate(Screen.NoteEditor.createRoute(openNoteId))
+                            } else if (widgetNoteId > 0L) {
+                                navController.navigate(Screen.NoteEditor.createRoute(widgetNoteId))
+                            } else if (widgetAction == com.example.widget.NotesAppWidgetProvider.ACTION_NEW_NOTE) {
+                                navController.navigate(Screen.NoteEditor.createRoute(0L))
+                            }
+                        }
+
                         NavHost(
                             navController = navController,
                             startDestination = Screen.NotesList.route

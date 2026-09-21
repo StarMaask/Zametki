@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -58,6 +59,12 @@ fun NotesListScreen(
                         )
                     },
                     actions = {
+                        val anyUnpinned = state.notes.filter { state.selectedNoteIds.contains(it.id) }.any { !it.isPinned }
+                        TooltipIconButton(
+                            onClick = { viewModel.pinSelectedNotes(anyUnpinned) },
+                            icon = if (anyUnpinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
+                            tooltip = if (anyUnpinned) "Закрепить выбранные" else "Открепить выбранные"
+                        )
                         TooltipIconButton(
                             onClick = { viewModel.selectAllNotes() },
                             icon = Icons.Filled.SelectAll,

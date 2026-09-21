@@ -1,10 +1,18 @@
 package com.example.util
 
+import com.example.domain.model.CheckListItem
 import com.example.domain.model.Note
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import org.json.JSONArray
 import org.json.JSONObject
 
 object BackupRestoreUtil {
+
+    private val json = Json {
+        ignoreUnknownKeys = true
+        isLenient = true
+    }
 
     fun exportToJson(notes: List<Note>): String {
         val root = JSONObject()
@@ -14,10 +22,10 @@ object BackupRestoreUtil {
         val array = JSONArray()
         for (note in notes) {
             val item = JSONObject()
-            item.put("uuid", note.uuid)
+            item.put("id", note.id)
             item.put("title", note.title)
             item.put("content", note.content)
-            item.put("colorIndex", note.colorIndex)
+            item.put("colorHex", note.colorHex)
             item.put("isPinned", note.isPinned)
             item.put("isArchived", note.isArchived)
             item.put("isDeleted", note.isDeleted)
@@ -26,9 +34,11 @@ object BackupRestoreUtil {
             }
             item.put("createdAt", note.createdAt)
             item.put("updatedAt", note.updatedAt)
-            item.put("isCheckedItemsList", note.isCheckedItemsList)
-            item.put("isLocked", note.isLocked)
-            item.put("folder", note.folder)
+            item.put("checkListJson", note.checkListJson)
+            item.put("imageUrisJson", note.imageUrisJson)
+            if (note.folder != null) {
+                item.put("folder", note.folder)
+            }
             if (note.audioUri != null) {
                 item.put("audioUri", note.audioUri)
             }
@@ -36,10 +46,6 @@ object BackupRestoreUtil {
             val tagsArray = JSONArray()
             note.tags.forEach { tagsArray.put(it) }
             item.put("tags", tagsArray)
-
-            val imagesArray = JSONArray()
-            note.imageUris.forEach { imagesArray.put(it) }
-            item.put("imageUris", imagesArray)
 
             array.put(item)
         }
@@ -64,20 +70,11 @@ object BackupRestoreUtil {
                     }
                 }
 
-                val imagesList = mutableListOf<String>()
-                val imagesArray = item.optJSONArray("imageUris")
-                if (imagesArray != null) {
-                    for (img in 0 until imagesArray.length()) {
-                        imagesList.add(imagesArray.getString(img))
-                    }
-                }
-
                 val note = Note(
                     id = 0L,
-                    uuid = item.optString("uuid", java.util.UUID.randomUUID().toString()),
                     title = item.optString("title", ""),
                     content = item.optString("content", ""),
-                    colorIndex = item.optInt("colorIndex", 0),
+                    colorHex = item.optString("colorHex", "#FFFFFF"),
                     isPinned = item.optBoolean("isPinned", false),
                     isArchived = item.optBoolean("isArchived", false),
                     isDeleted = item.optBoolean("isDeleted", false),
@@ -85,11 +82,10 @@ object BackupRestoreUtil {
                     createdAt = item.optLong("createdAt", System.currentTimeMillis()),
                     updatedAt = item.optLong("updatedAt", System.currentTimeMillis()),
                     tags = tagsList,
-                    isCheckedItemsList = item.optBoolean("isCheckedItemsList", false),
-                    imageUris = imagesList,
-                    isLocked = item.optBoolean("isLocked", false),
-                    folder = item.optString("folder", ""),
-                    audioUri = if (item.has("audioUri")) item.getString("audioUri") else null
+                    checkListJson = item.optString("checkListJson", ""),
+                    imageUrisJson = item.optString("imageUrisJson", ""),
+                    folder = if (item.has("folder")) item.optString("folder").ifBlank { null } else null,
+                    audioUri = if (item.has("audioUri")) item.optString("audioUri").ifBlank { null } else null
                 )
                 notes.add(note)
             }

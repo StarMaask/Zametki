@@ -41,6 +41,7 @@ import com.example.presentation.components.DrawingCanvasDialog
 import com.example.presentation.components.NoteInfoDialog
 import com.example.presentation.components.TooltipIconButton
 import com.example.ui.theme.NoteColors
+import com.example.util.ShareExportUtil
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -171,29 +172,40 @@ fun NoteEditorScreen(
                             DropdownMenuItem(
                                 text = {
                                     Column {
-                                        Text("Поделиться")
-                                        Text("Отправить текст через приложения", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text("Поделиться текстом")
+                                        Text("Отправить текст через мессенджеры", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 },
                                 leadingIcon = { Icon(Icons.Filled.Share, null) },
                                 onClick = {
                                     showTopMenu = false
-                                    val shareText = buildString {
-                                        if (state.title.isNotBlank()) appendLine(state.title)
-                                        if (state.content.isNotBlank()) appendLine(state.content)
-                                        if (state.checkList.isNotEmpty()) {
-                                            appendLine("\nСписок дел:")
-                                            state.checkList.forEach {
-                                                appendLine("${if (it.isChecked) "[✓]" else "[ ]"} ${it.text}")
-                                            }
-                                        }
+                                    ShareExportUtil.shareAsText(context, state.toDomainNote())
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = {
+                                    Column {
+                                        Text("Экспорт в PDF")
+                                        Text("Создать документ с заголовком и датой", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
-                                    val intent = Intent(Intent.ACTION_SEND).apply {
-                                        type = "text/plain"
-                                        putExtra(Intent.EXTRA_SUBJECT, state.title)
-                                        putExtra(Intent.EXTRA_TEXT, shareText)
+                                },
+                                leadingIcon = { Icon(Icons.Filled.PictureAsPdf, null) },
+                                onClick = {
+                                    showTopMenu = false
+                                    ShareExportUtil.shareAsPdf(context, state.toDomainNote())
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = {
+                                    Column {
+                                        Text("Экспорт в TXT")
+                                        Text("Сохранить как текстовый файл", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
-                                    context.startActivity(Intent.createChooser(intent, "Поделиться заметкой"))
+                                },
+                                leadingIcon = { Icon(Icons.Filled.Description, null) },
+                                onClick = {
+                                    showTopMenu = false
+                                    ShareExportUtil.shareAsTxtFile(context, state.toDomainNote())
                                 }
                             )
                             DropdownMenuItem(

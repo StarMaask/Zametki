@@ -188,6 +188,17 @@ class NotesListViewModel(
         }
     }
 
+    fun pinSelectedNotes(pin: Boolean) {
+        viewModelScope.launch {
+            val selected = _uiState.value.selectedNoteIds
+            val toUpdate = _uiState.value.notes.filter { selected.contains(it.id) }
+            toUpdate.forEach { note ->
+                repository.updateNote(note.copy(isPinned = pin, updatedAt = System.currentTimeMillis()))
+            }
+            clearSelection()
+        }
+    }
+
     fun changeColorForSelected(hex: String) {
         viewModelScope.launch {
             val selected = _uiState.value.selectedNoteIds

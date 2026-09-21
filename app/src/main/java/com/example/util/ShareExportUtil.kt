@@ -10,7 +10,9 @@ import android.text.StaticLayout
 import android.text.TextPaint
 import android.widget.Toast
 import androidx.core.content.FileProvider
+import com.example.domain.model.CheckListItem
 import com.example.domain.model.Note
+import kotlinx.serialization.json.Json
 import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
@@ -21,13 +23,22 @@ object ShareExportUtil {
 
     private val dateFormat = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault())
 
+    private fun parseChecklist(jsonStr: String): List<CheckListItem> {
+        return try {
+            if (jsonStr.isNotBlank()) Json.decodeFromString<List<CheckListItem>>(jsonStr) else emptyList()
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
     fun buildNoteShareText(note: Note): String {
         val sb = StringBuilder()
         val title = if (note.title.isNotBlank()) note.title else "Без названия"
         sb.append("📝 ").append(title).append("\n")
 
-        if (note.folder.isNotBlank()) {
-            sb.append("📁 Папка: ").append(note.folder).append("\n")
+        val folder = note.folder
+        if (!folder.isNullOrBlank()) {
+            sb.append("📁 Папка: ").append(folder).append("\n")
         }
 
         sb.append("📅 ").append(dateFormat.format(Date(note.updatedAt))).append("\n")
@@ -38,16 +49,14 @@ object ShareExportUtil {
 
         sb.append("\n")
 
-        if (note.isCheckedItemsList) {
-            val lines = note.content.lines().filter { it.isNotBlank() }
-            for (line in lines) {
-                if (line.startsWith("[x] ") || line.startsWith("[X] ")) {
-                    sb.append("✓ ").append(line.substring(4)).append("\n")
-                } else if (line.startsWith("[ ] ")) {
-                    sb.append("☐ ").append(line.substring(4)).append("\n")
-                } else {
-                    sb.append("• ").append(line).append("\n")
-                }
+        val checklist = parseChecklist(note.checkListJson)
+        if (checklist.isNotEmpty()) {
+            for (item in checklist) {
+                val checkMark = if (item.isChecked) "✓" else "☐"
+                sb.append("$checkMark ${item.text}\n")
+            }
+            if (note.content.isNotBlank()) {
+                sb.append("\n").append(note.content).append("\n")
             }
         } else {
             sb.append(note.content)
@@ -139,8 +148,9 @@ object ShareExportUtil {
             // Metadata (date, folder, tags)
             val metaBuilder = StringBuilder()
             metaBuilder.append(dateFormat.format(Date(note.updatedAt)))
-            if (note.folder.isNotBlank()) {
-                metaBuilder.append("  •  Папка: ").append(note.folder)
+            val folder = note.folder
+            if (!folder.isNullOrBlank()) {
+                metaBuilder.append("  •  Папка: ").append(folder)
             }
             if (note.tags.isNotEmpty()) {
                 metaBuilder.append("  •  Теги: ").append(note.tags.joinToString(", "))
@@ -160,16 +170,13 @@ object ShareExportUtil {
             currentY += 20f
 
             // Body Content
-            val bodyText = if (note.isCheckedItemsList) {
-                note.content.lines().filter { it.isNotBlank() }.joinToString("\n") { line ->
-                    if (line.startsWith("[x] ") || line.startsWith("[X] ")) {
-                        "[✓] ${line.substring(4)}"
-                    } else if (line.startsWith("[ ] ")) {
-                        "[  ] ${line.substring(4)}"
-                    } else {
-                        "• $line"
-                    }
+            val checklist = parseChecklist(note.checkListJson)
+            val bodyText = if (checklist.isNotEmpty()) {
+                val clText = checklist.joinToString("\n") { item ->
+                    val mark = if (item.isChecked) "[✓]" else "[  ]"
+                    "$mark ${item.text}"
                 }
+                if (note.content.isNotBlank()) "$clText\n\n${note.content}" else clText
             } else {
                 note.content
             }
