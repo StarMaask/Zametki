@@ -65,6 +65,22 @@ interface NoteDao {
     @Query("UPDATE notes SET isArchived = :isArchived, updatedAt = :updatedAt WHERE id = :noteId")
     suspend fun setArchived(noteId: Long, isArchived: Boolean, updatedAt: Long = System.currentTimeMillis())
 
+    // Batch operations
+    @Query("UPDATE notes SET isDeleted = 1, updatedAt = :updatedAt WHERE id IN (:ids)")
+    suspend fun batchMoveToTrash(ids: List<Long>, updatedAt: Long = System.currentTimeMillis())
+
+    @Query("UPDATE notes SET isArchived = :isArchived, updatedAt = :updatedAt WHERE id IN (:ids)")
+    suspend fun batchSetArchived(ids: List<Long>, isArchived: Boolean, updatedAt: Long = System.currentTimeMillis())
+
+    @Query("UPDATE notes SET isPinned = :isPinned, updatedAt = :updatedAt WHERE id IN (:ids)")
+    suspend fun batchSetPinned(ids: List<Long>, isPinned: Boolean, updatedAt: Long = System.currentTimeMillis())
+
+    @Query("UPDATE notes SET colorIndex = :colorIndex, updatedAt = :updatedAt WHERE id IN (:ids)")
+    suspend fun batchSetColor(ids: List<Long>, colorIndex: Int, updatedAt: Long = System.currentTimeMillis())
+
+    @Query("UPDATE notes SET folder = :folder, updatedAt = :updatedAt WHERE id IN (:ids)")
+    suspend fun batchSetFolder(ids: List<Long>, folder: String, updatedAt: Long = System.currentTimeMillis())
+
     // FTS4 полнотекстовый поиск по MATCH
     @Query("""
         SELECT notes.* FROM notes

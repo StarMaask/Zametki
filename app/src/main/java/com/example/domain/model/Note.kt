@@ -18,7 +18,9 @@ data class Note(
     val tags: List<String> = emptyList(),
     val isCheckedItemsList: Boolean = false,
     val imageUris: List<String> = emptyList(),
-    val isLocked: Boolean = false
+    val isLocked: Boolean = false,
+    val folder: String = "",
+    val audioUri: String? = null
 )
 
 /**

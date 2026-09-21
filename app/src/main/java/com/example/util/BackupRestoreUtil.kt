@@ -28,6 +28,10 @@ object BackupRestoreUtil {
             item.put("updatedAt", note.updatedAt)
             item.put("isCheckedItemsList", note.isCheckedItemsList)
             item.put("isLocked", note.isLocked)
+            item.put("folder", note.folder)
+            if (note.audioUri != null) {
+                item.put("audioUri", note.audioUri)
+            }
 
             val tagsArray = JSONArray()
             note.tags.forEach { tagsArray.put(it) }
@@ -83,7 +87,9 @@ object BackupRestoreUtil {
                     tags = tagsList,
                     isCheckedItemsList = item.optBoolean("isCheckedItemsList", false),
                     imageUris = imagesList,
-                    isLocked = item.optBoolean("isLocked", false)
+                    isLocked = item.optBoolean("isLocked", false),
+                    folder = item.optString("folder", ""),
+                    audioUri = if (item.has("audioUri")) item.getString("audioUri") else null
                 )
                 notes.add(note)
             }

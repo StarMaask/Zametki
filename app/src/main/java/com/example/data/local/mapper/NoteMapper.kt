@@ -24,7 +24,9 @@ object NoteMapper {
             tagsJson = jsonArray.toString(),
             isCheckedItemsList = note.isCheckedItemsList,
             imageUrisJson = JSONArray().apply { note.imageUris.forEach { put(it) } }.toString(),
-            isLocked = note.isLocked
+            isLocked = note.isLocked,
+            folder = note.folder,
+            audioUri = note.audioUri
         )
     }
 
@@ -64,7 +66,9 @@ object NoteMapper {
             tags = tagsList,
             isCheckedItemsList = entity.isCheckedItemsList,
             imageUris = imageUrisList,
-            isLocked = entity.isLocked
+            isLocked = entity.isLocked,
+            folder = entity.folder,
+            audioUri = entity.audioUri
         )
     }
 }

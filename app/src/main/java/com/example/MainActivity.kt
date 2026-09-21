@@ -15,10 +15,13 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
@@ -27,6 +30,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.data.local.NoteDatabase
+import com.example.data.preferences.FontSizeScale
 import com.example.data.preferences.UserPreferencesManager
 import com.example.data.repository.NoteRepositoryImpl
 import com.example.presentation.navigation.Screen
@@ -78,10 +82,19 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val currentTheme by preferencesManager.themeFlow.collectAsState(initial = AppThemePreset.PURITY)
+            val currentFontSize by preferencesManager.fontSizeFlow.collectAsState(initial = FontSizeScale.NORMAL)
 
-            NoteAppTheme(themePreset = currentTheme) {
-                Crossfade(targetState = currentTheme, label = "theme_crossfade") { _ ->
-                    AppNavigation()
+            val currentDensity = LocalDensity.current
+            val adjustedDensity = Density(
+                density = currentDensity.density,
+                fontScale = currentDensity.fontScale * currentFontSize.scaleMultiplier
+            )
+
+            CompositionLocalProvider(LocalDensity provides adjustedDensity) {
+                NoteAppTheme(themePreset = currentTheme) {
+                    Crossfade(targetState = currentTheme, label = "theme_crossfade") { _ ->
+                        AppNavigation()
+                    }
                 }
             }
         }

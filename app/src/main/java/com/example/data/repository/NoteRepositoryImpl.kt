@@ -94,4 +94,34 @@ class NoteRepositoryImpl(
         val entities = notes.map { NoteMapper.toEntity(it.copy(id = 0)) }
         noteDao.insertNotesList(entities)
     }
+
+    override suspend fun batchMoveToTrash(ids: List<Long>) {
+        if (ids.isNotEmpty()) {
+            noteDao.batchMoveToTrash(ids)
+        }
+    }
+
+    override suspend fun batchArchive(ids: List<Long>, isArchived: Boolean) {
+        if (ids.isNotEmpty()) {
+            noteDao.batchSetArchived(ids, isArchived)
+        }
+    }
+
+    override suspend fun batchTogglePin(ids: List<Long>, isPinned: Boolean) {
+        if (ids.isNotEmpty()) {
+            noteDao.batchSetPinned(ids, isPinned)
+        }
+    }
+
+    override suspend fun batchChangeColor(ids: List<Long>, colorIndex: Int) {
+        if (ids.isNotEmpty()) {
+            noteDao.batchSetColor(ids, colorIndex)
+        }
+    }
+
+    override suspend fun batchMoveToFolder(ids: List<Long>, folder: String) {
+        if (ids.isNotEmpty()) {
+            noteDao.batchSetFolder(ids, folder)
+        }
+    }
 }

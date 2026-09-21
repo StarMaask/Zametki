@@ -1,7 +1,9 @@
 package com.example.presentation.components
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,8 +20,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Alarm
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -40,12 +45,14 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun NoteCard(
     note: Note,
     onClick: () -> Unit,
     onLongClick: () -> Unit = {},
+    isSelected: Boolean = false,
+    isSelectionMode: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val stripeColor = if (note.colorIndex in NoteTagColors.list.indices) {
@@ -54,17 +61,35 @@ fun NoteCard(
         MaterialTheme.colorScheme.primary
     }
 
+    val cardBorderModifier = if (isSelected) {
+        Modifier.border(2.dp, MaterialTheme.colorScheme.primary, NoteDimens.shapeMedium)
+    } else Modifier
+
     Card(
         modifier = modifier
             .fillMaxWidth()
+            .then(cardBorderModifier)
             .clip(NoteDimens.shapeMedium)
-            .clickable(onClick = onClick),
+            .combinedClickable(
+                onClick = {
+                    if (isSelectionMode) {
+                        onLongClick()
+                    } else {
+                        onClick()
+                    }
+                },
+                onLongClick = onLongClick
+            ),
         shape = NoteDimens.shapeMedium,
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
+            containerColor = if (isSelected) {
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+            } else {
+                MaterialTheme.colorScheme.surface
+            }
         ),
         elevation = CardDefaults.cardElevation(
-            defaultElevation = NoteDimens.elevationLow
+            defaultElevation = if (isSelected) NoteDimens.elevationMedium else NoteDimens.elevationLow
         )
     ) {
         Row(modifier = Modifier.fillMaxWidth()) {
@@ -72,7 +97,7 @@ fun NoteCard(
             Box(
                 modifier = Modifier
                     .width(4.dp)
-                    .height(90.dp)
+                    .height(96.dp)
                     .background(stripeColor)
             )
 
@@ -81,11 +106,39 @@ fun NoteCard(
                     .weight(1f)
                     .padding(horizontal = 14.dp, vertical = 12.dp)
             ) {
+                // Заголовок и индикаторы
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
+                    if (isSelectionMode) {
+                        Box(
+                            modifier = Modifier
+                                .size(22.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent
+                                )
+                                .border(
+                                    2.dp,
+                                    if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                                    CircleShape
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (isSelected) {
+                                Icon(
+                                    Icons.Default.Check,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                    }
+
                     Text(
                         text = if (note.title.isNotBlank()) note.title else "Без названия",
                         style = MaterialTheme.typography.titleMedium,
@@ -113,6 +166,31 @@ fun NoteCard(
                                 modifier = Modifier.size(16.dp)
                             )
                         }
+                    }
+                }
+
+                // Папка (если назначена)
+                if (note.folder.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Folder,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(12.dp)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            text = note.folder,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
 
@@ -200,7 +278,7 @@ fun NoteCard(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Дата и иконка напоминания
+                // Дата и иконки вложений
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -217,6 +295,15 @@ fun NoteCard(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        if (note.audioUri != null) {
+                            Icon(
+                                imageVector = Icons.Default.Mic,
+                                contentDescription = "Аудиозапись",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+
                         if (note.imageUris.isNotEmpty()) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(

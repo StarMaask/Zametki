@@ -9,16 +9,34 @@ import com.example.ui.theme.AppThemePreset
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
+enum class FontSizeScale(val title: String, val scale: Float) {
+    SMALL("Компактный", 0.85f),
+    NORMAL("Обычный", 1.0f),
+    LARGE("Крупный", 1.18f);
+
+    val scaleMultiplier: Float get() = scale
+}
+
 private val Context.dataStore by preferencesDataStore(name = "user_settings")
 
 class UserPreferencesManager(private val context: Context) {
 
     private val KEY_THEME = stringPreferencesKey("app_theme")
+    private val KEY_FONT_SIZE = stringPreferencesKey("font_size")
     private val KEY_VIEW_MODE = stringPreferencesKey("view_mode")
     private val KEY_HAPTIC = booleanPreferencesKey("haptic_feedback")
     private val KEY_FIRST_LAUNCH = booleanPreferencesKey("is_first_launch")
     private val KEY_PIN_CODE = stringPreferencesKey("pin_code")
     private val KEY_PIN_ENABLED = booleanPreferencesKey("pin_enabled")
+
+    val fontSizeFlow: Flow<FontSizeScale> = context.dataStore.data.map { prefs ->
+        val name = prefs[KEY_FONT_SIZE] ?: FontSizeScale.NORMAL.name
+        try {
+            FontSizeScale.valueOf(name)
+        } catch (_: Exception) {
+            FontSizeScale.NORMAL
+        }
+    }
 
     val pinCodeFlow: Flow<String> = context.dataStore.data.map { prefs ->
         prefs[KEY_PIN_CODE] ?: "0000"
@@ -44,6 +62,12 @@ class UserPreferencesManager(private val context: Context) {
     suspend fun setTheme(theme: AppThemePreset) {
         context.dataStore.edit { prefs ->
             prefs[KEY_THEME] = theme.name
+        }
+    }
+
+    suspend fun setFontSize(scale: FontSizeScale) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_FONT_SIZE] = scale.name
         }
     }
 

@@ -36,6 +36,7 @@ import com.example.ui.theme.NoteTagColors
 @Composable
 fun FilterBottomSheet(
     filterState: FilterState,
+    folders: List<String> = emptyList(),
     onFilterChange: (FilterState) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -55,6 +56,37 @@ fun FilterBottomSheet(
             )
 
             Spacer(modifier = Modifier.height(16.dp))
+
+            // Папки
+            if (folders.isNotEmpty()) {
+                Text(
+                    text = "Папки",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChip(
+                        selected = filterState.selectedFolder == null,
+                        onClick = { onFilterChange(filterState.copy(selectedFolder = null)) },
+                        label = { Text("Все папки") }
+                    )
+                    folders.forEach { f ->
+                        FilterChip(
+                            selected = filterState.selectedFolder == f,
+                            onClick = {
+                                val next = if (filterState.selectedFolder == f) null else f
+                                onFilterChange(filterState.copy(selectedFolder = next))
+                            },
+                            label = { Text("📁 $f") }
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
 
             // Сортировка
             Text(

@@ -19,4 +19,9 @@ interface NoteRepository {
     fun searchNotes(query: String): Flow<List<Note>>
     suspend fun getAllActiveNotesList(): List<Note>
     suspend fun importNotes(notes: List<Note>)
+    suspend fun batchMoveToTrash(ids: List<Long>)
+    suspend fun batchArchive(ids: List<Long>, isArchived: Boolean)
+    suspend fun batchTogglePin(ids: List<Long>, isPinned: Boolean)
+    suspend fun batchChangeColor(ids: List<Long>, colorIndex: Int)
+    suspend fun batchMoveToFolder(ids: List<Long>, folder: String)
 }

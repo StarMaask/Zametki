@@ -14,7 +14,8 @@ import androidx.room.PrimaryKey
         Index("isArchived"),
         Index("isPinned"),
         Index("reminderTime"),
-        Index("updatedAt")
+        Index("updatedAt"),
+        Index("folder")
     ]
 )
 data class NoteEntity(
@@ -33,5 +34,7 @@ data class NoteEntity(
     val tagsJson: String = "[]", // Храним список тегов компактно
     val isCheckedItemsList: Boolean = false,
     val imageUrisJson: String = "[]",
-    val isLocked: Boolean = false
+    val isLocked: Boolean = false,
+    val folder: String = "",
+    val audioUri: String? = null
 )

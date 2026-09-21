@@ -51,6 +51,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.example.data.preferences.FontSizeScale
 import com.example.data.preferences.UserPreferencesManager
 import com.example.domain.repository.NoteRepository
 import com.example.ui.theme.AppThemePreset
@@ -70,6 +71,7 @@ fun SettingsScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val currentTheme by preferencesManager.themeFlow.collectAsState(initial = AppThemePreset.PURITY)
+    val currentFontSize by preferencesManager.fontSizeFlow.collectAsState(initial = FontSizeScale.NORMAL)
     val isPinEnabled by preferencesManager.isPinEnabledFlow.collectAsState(initial = false)
     val currentPin by preferencesManager.pinCodeFlow.collectAsState(initial = "0000")
 
@@ -151,6 +153,58 @@ fun SettingsScreen(
                                 onClick = {
                                     scope.launch(Dispatchers.IO) {
                                         preferencesManager.setTheme(preset)
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Размер текста
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "Размер шрифта",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Text(
+                        text = "Масштаб текста в приложении",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    FontSizeScale.entries.forEach { scale ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    scope.launch(Dispatchers.IO) {
+                                        preferencesManager.setFontSize(scale)
+                                    }
+                                }
+                                .padding(vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = scale.title,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            RadioButton(
+                                selected = currentFontSize == scale,
+                                onClick = {
+                                    scope.launch(Dispatchers.IO) {
+                                        preferencesManager.setFontSize(scale)
                                     }
                                 }
                             )

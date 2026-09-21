@@ -30,7 +30,9 @@ data class NoteEditorUiState(
     val checkListItems: List<com.example.domain.model.CheckListItem> = emptyList(),
     val imageUris: List<String> = emptyList(),
     val isLocked: Boolean = false,
-    val isAiProcessing: Boolean = false
+    val isAiProcessing: Boolean = false,
+    val folder: String = "",
+    val audioUri: String? = null
 )
 
 class NoteEditorViewModel(
@@ -72,7 +74,9 @@ class NoteEditorViewModel(
                     isCheckedItemsList = note.isCheckedItemsList,
                     checkListItems = parsedList,
                     imageUris = note.imageUris,
-                    isLocked = note.isLocked
+                    isLocked = note.isLocked,
+                    folder = note.folder,
+                    audioUri = note.audioUri
                 )
             }
         }
@@ -285,6 +289,8 @@ class NoteEditorViewModel(
                 isCheckedItemsList = s.isCheckedItemsList,
                 imageUris = s.imageUris,
                 isLocked = s.isLocked,
+                folder = s.folder,
+                audioUri = s.audioUri,
                 updatedAt = System.currentTimeMillis()
             )
 
@@ -298,6 +304,41 @@ class NoteEditorViewModel(
                 )
             }
         }
+    }
+
+    fun setFolder(folder: String) {
+        _uiState.update { it.copy(folder = folder.trim(), isSaved = false) }
+        scheduleAutoSave()
+    }
+
+    fun setAudioUri(audioUri: String?) {
+        _uiState.update { it.copy(audioUri = audioUri, isSaved = false) }
+        scheduleAutoSave()
+    }
+
+    fun getCurrentNote(): Note {
+        val s = _uiState.value
+        val effectiveContent = if (s.isCheckedItemsList) {
+            serializeCheckList(s.checkListItems)
+        } else {
+            s.content.trim()
+        }
+        return Note(
+            id = s.id,
+            title = s.title.trim(),
+            content = effectiveContent,
+            colorIndex = s.colorIndex,
+            isPinned = s.isPinned,
+            isArchived = s.isArchived,
+            reminderTime = s.reminderTime,
+            tags = s.tags,
+            isCheckedItemsList = s.isCheckedItemsList,
+            imageUris = s.imageUris,
+            isLocked = s.isLocked,
+            folder = s.folder,
+            audioUri = s.audioUri,
+            updatedAt = System.currentTimeMillis()
+        )
     }
 
     fun addImageUri(uriString: String) {
