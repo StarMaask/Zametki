@@ -1,507 +1,368 @@
 package com.example.presentation.screens.settings
 
-import android.content.Context
 import android.content.Intent
-import android.widget.Toast
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Backup
-import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.filled.Password
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.data.preferences.FontSizeScale
 import com.example.data.preferences.UserPreferencesManager
+import com.example.domain.model.Note
 import com.example.domain.repository.NoteRepository
+import com.example.presentation.components.TooltipIconButton
 import com.example.ui.theme.AppThemePreset
-import com.example.util.BackupRestoreUtil
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     preferencesManager: UserPreferencesManager,
-    onBack: () -> Unit,
-    modifier: Modifier = Modifier,
-    repository: NoteRepository? = null
+    repository: NoteRepository,
+    onBack: () -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
+
     val currentTheme by preferencesManager.themeFlow.collectAsState(initial = AppThemePreset.PURITY)
     val currentFontSize by preferencesManager.fontSizeFlow.collectAsState(initial = FontSizeScale.NORMAL)
     val isPinEnabled by preferencesManager.isPinEnabledFlow.collectAsState(initial = false)
-    val currentPin by preferencesManager.pinCodeFlow.collectAsState(initial = "0000")
 
     var showPinDialog by remember { mutableStateOf(false) }
-    var newPinInput by remember { mutableStateOf("") }
-    var pinError by remember { mutableStateOf(false) }
-
+    var pinInput by remember { mutableStateOf("") }
     var showImportDialog by remember { mutableStateOf(false) }
-    var importJsonText by remember { mutableStateOf("") }
+    var importJsonInput by remember { mutableStateOf("") }
+    var importError by remember { mutableStateOf<String?>(null) }
+
+    val jsonConfig = Json {
+        ignoreUnknownKeys = true
+        isLenient = true
+        prettyPrint = true
+    }
 
     Scaffold(
-        modifier = modifier.fillMaxSize(),
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("Настройки") },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
+                    TooltipIconButton(
+                        onClick = onBack,
+                        icon = Icons.AutoMirrored.Filled.ArrowBack,
+                        tooltip = "Вернуться назад"
+                    )
+                }
             )
         }
-    ) { innerPadding ->
+    ) { paddingValues ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
+                .padding(paddingValues)
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp)
         ) {
-            // Внешний вид
+            // THEME SECTION
             Text(
-                text = "Внешний вид",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.primary
+                text = "Тема оформления",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
             )
-            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = "Выберите комфортную цветовую схему для интерфейса:",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(8.dp))
 
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                ),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Palette, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(modifier = Modifier.padding(start = 8.dp))
-                        Text(
-                            text = "Цветовая тема",
-                            style = MaterialTheme.typography.titleMedium
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    AppThemePreset.entries.forEach { preset ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    scope.launch(Dispatchers.IO) {
-                                        preferencesManager.setTheme(preset)
-                                    }
-                                }
-                                .padding(vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = preset.title,
-                                style = MaterialTheme.typography.bodyLarge
-                            )
-                            RadioButton(
-                                selected = currentTheme == preset,
-                                onClick = {
-                                    scope.launch(Dispatchers.IO) {
-                                        preferencesManager.setTheme(preset)
-                                    }
-                                }
-                            )
-                        }
-                    }
+            AppThemePreset.values().forEach { preset ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { scope.launch { preferencesManager.setTheme(preset) } }
+                        .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(
+                        selected = currentTheme == preset,
+                        onClick = { scope.launch { preferencesManager.setTheme(preset) } }
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(preset.title, style = MaterialTheme.typography.bodyLarge)
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            HorizontalDivider(modifier = Modifier.padding(vertical = 14.dp))
 
-            // Размер текста
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                ),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "Размер шрифта",
-                        style = MaterialTheme.typography.titleMedium
+            // FONT SIZE SECTION
+            Text(
+                text = "Размер шрифта",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+            )
+            Text(
+                text = "Масштабирование текста внутри заметок:",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            FontSizeScale.values().forEach { scale ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { scope.launch { preferencesManager.setFontSize(scale) } }
+                        .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(
+                        selected = currentFontSize == scale,
+                        onClick = { scope.launch { preferencesManager.setFontSize(scale) } }
                     )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(scale.title, style = MaterialTheme.typography.bodyLarge)
+                }
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 14.dp))
+
+            // SECURITY SECTION
+            Text(
+                text = "Безопасность",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+            )
+            Text(
+                text = "Защита конфиденциальных записей от посторонних:",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Защита PIN-кодом", style = MaterialTheme.typography.bodyLarge)
                     Text(
-                        text = "Масштаб текста в приложении",
+                        text = if (isPinEnabled) "PIN-код активен" else "Блокировка отключена",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    FontSizeScale.entries.forEach { scale ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    scope.launch(Dispatchers.IO) {
-                                        preferencesManager.setFontSize(scale)
-                                    }
-                                }
-                                .padding(vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = scale.title,
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                            RadioButton(
-                                selected = currentFontSize == scale,
-                                onClick = {
-                                    scope.launch(Dispatchers.IO) {
-                                        preferencesManager.setFontSize(scale)
-                                    }
-                                }
-                            )
-                        }
-                    }
                 }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Безопасность и PIN-код
-            Text(
-                text = "Безопасность",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.primary
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                ),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            Spacer(modifier = Modifier.padding(start = 8.dp))
-                            Column {
-                                Text(
-                                    text = "Защита PIN-кодом",
-                                    style = MaterialTheme.typography.titleMedium
-                                )
-                                Text(
-                                    text = if (isPinEnabled) "Включена" else "Отключена",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.outline
-                                )
+                Switch(
+                    checked = isPinEnabled,
+                    onCheckedChange = { enabled ->
+                        if (enabled) {
+                            showPinDialog = true
+                        } else {
+                            scope.launch {
+                                preferencesManager.setPinEnabled(false)
+                                snackbarHostState.showSnackbar("Защита PIN-кодом отключена")
                             }
                         }
-                        Switch(
-                            checked = isPinEnabled,
-                            onCheckedChange = { enabled ->
-                                scope.launch(Dispatchers.IO) {
-                                    preferencesManager.setPinEnabled(enabled)
-                                }
-                            }
-                        )
                     }
-
-                    if (isPinEnabled) {
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Button(
-                            onClick = {
-                                newPinInput = ""
-                                pinError = false
-                                showPinDialog = true
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("Изменить PIN-код (сейчас: ****)")
-                        }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Резервное копирование и восстановление
-            if (repository != null) {
-                Text(
-                    text = "Резервное копирование",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary
                 )
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surface
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Backup, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            Spacer(modifier = Modifier.padding(start = 8.dp))
-                            Text(
-                                text = "Локальный бэкап заметок (JSON)",
-                                style = MaterialTheme.typography.titleMedium
-                            )
-                        }
-
-                        Text(
-                            text = "Вы можете экспортировать все свои заметки в безопасный JSON файл или импортировать ранее сохраненную копию.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Button(
-                                onClick = {
-                                    scope.launch {
-                                        val notes = withContext(Dispatchers.IO) {
-                                            repository.getAllActiveNotesList()
-                                        }
-                                        if (notes.isEmpty()) {
-                                            Toast.makeText(context, "Нет заметок для экспорта", Toast.LENGTH_SHORT).show()
-                                        } else {
-                                            val jsonString = BackupRestoreUtil.exportToJson(notes)
-                                            shareJsonBackup(context, jsonString)
-                                        }
-                                    }
-                                },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(Icons.Default.Share, contentDescription = null)
-                                Spacer(modifier = Modifier.padding(start = 6.dp))
-                                Text("Экспорт")
-                            }
-
-                            Button(
-                                onClick = {
-                                    importJsonText = ""
-                                    showImportDialog = true
-                                },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(Icons.Default.Download, contentDescription = null)
-                                Spacer(modifier = Modifier.padding(start = 6.dp))
-                                Text("Импорт")
-                            }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(24.dp))
             }
 
-            // О приложении
+            if (isPinEnabled) {
+                OutlinedButton(
+                    onClick = { showPinDialog = true },
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                ) {
+                    Icon(Icons.Filled.Password, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Сменить PIN-код")
+                }
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 14.dp))
+
+            // BACKUP & RESTORE SECTION
             Text(
-                text = "О приложении",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.primary
+                text = "Резервное копирование и перенос",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+            )
+            Text(
+                text = "Сохраняйте копии всех заметок и восстанавливайте их в любой момент:",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(modifier = Modifier.height(12.dp))
 
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                ),
-                modifier = Modifier.fillMaxWidth()
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "Заметки v1.0",
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Локальное, приватное и быстрое хранилище заметок с Room FTS4, напоминаниями, фото и Material 3.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                Button(
+                    onClick = {
+                        scope.launch {
+                            val notes = repository.getAllNotesForBackup()
+                            val json = jsonConfig.encodeToString(notes)
+                            val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_SUBJECT, "notes_backup.json")
+                                putExtra(Intent.EXTRA_TEXT, json)
+                            }
+                            context.startActivity(Intent.createChooser(sendIntent, "Экспорт резервной копии"))
+                        }
+                    },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Filled.FileUpload, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Экспорт")
+                }
+
+                OutlinedButton(
+                    onClick = {
+                        importError = null
+                        importJsonInput = ""
+                        showImportDialog = true
+                    },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Filled.FileDownload, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Импорт")
                 }
             }
         }
     }
 
-    // Диалог смены PIN-кода
     if (showPinDialog) {
         AlertDialog(
             onDismissRequest = { showPinDialog = false },
-            title = { Text("Установка PIN-кода") },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Установить PIN-код")
+                }
+            },
             text = {
                 Column {
                     Text(
-                        text = "Введите 4 цифры для защиты ваших заметок:",
-                        style = MaterialTheme.typography.bodyMedium
+                        text = "Введите 4 цифры для разблокировки приложения:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
-                        value = newPinInput,
-                        onValueChange = {
-                            if (it.length <= 4 && it.all { char -> char.isDigit() }) {
-                                newPinInput = it
-                                pinError = false
-                            }
-                        },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                        visualTransformation = PasswordVisualTransformation(),
+                        value = pinInput,
+                        onValueChange = { if (it.length <= 4 && it.all { c -> c.isDigit() }) pinInput = it },
+                        placeholder = { Text("4 цифры") },
                         singleLine = true,
-                        isError = pinError,
-                        label = { Text("PIN-код (4 цифры)") },
                         modifier = Modifier.fillMaxWidth()
                     )
-                    if (pinError) {
-                        Text(
-                            text = "PIN должен состоять ровно из 4 цифр",
-                            color = MaterialTheme.colorScheme.error,
-                            style = MaterialTheme.typography.labelSmall
-                        )
-                    }
                 }
             },
             confirmButton = {
-                Button(onClick = {
-                    if (newPinInput.length == 4) {
-                        scope.launch(Dispatchers.IO) {
-                            preferencesManager.setPinCode(newPinInput)
-                            preferencesManager.setPinEnabled(true)
+                Button(
+                    enabled = pinInput.length == 4,
+                    onClick = {
+                        if (pinInput.length == 4) {
+                            scope.launch {
+                                preferencesManager.setPinCode(pinInput)
+                                preferencesManager.setPinEnabled(true)
+                                showPinDialog = false
+                                pinInput = ""
+                                snackbarHostState.showSnackbar("PIN-код успешно сохранен")
+                            }
                         }
-                        Toast.makeText(context, "PIN-код успешно обновлен", Toast.LENGTH_SHORT).show()
-                        showPinDialog = false
-                    } else {
-                        pinError = true
                     }
-                }) {
+                ) {
                     Text("Сохранить")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showPinDialog = false }) {
-                    Text("Отмена")
-                }
+                TextButton(onClick = { showPinDialog = false }) { Text("Отмена") }
             }
         )
     }
 
-    // Диалог импорта JSON
-    if (showImportDialog && repository != null) {
+    if (showImportDialog) {
         AlertDialog(
             onDismissRequest = { showImportDialog = false },
-            title = { Text("Импорт заметок") },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.FileDownload, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Импорт заметок (JSON)")
+                }
+            },
             text = {
                 Column {
                     Text(
-                        text = "Вставьте JSON содержимое резервной копии ниже:",
-                        style = MaterialTheme.typography.bodyMedium
+                        text = "Вставьте ранее экспортированный текст резервной копии (JSON):",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
-                        value = importJsonText,
-                        onValueChange = { importJsonText = it },
+                        value = importJsonInput,
+                        onValueChange = {
+                            importJsonInput = it
+                            importError = null
+                        },
+                        placeholder = { Text("[{\"title\":\"Заметка\", ...}]") },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(180.dp),
-                        label = { Text("JSON данные") },
-                        maxLines = 10
+                        isError = importError != null
                     )
+                    if (importError != null) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = importError!!,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
                 }
             },
             confirmButton = {
-                Button(onClick = {
-                    if (importJsonText.isNotBlank()) {
-                        scope.launch {
-                            val importedNotes = BackupRestoreUtil.importFromJson(importJsonText)
-                            if (importedNotes.isNotEmpty()) {
-                                withContext(Dispatchers.IO) {
-                                    repository.importNotes(importedNotes)
-                                }
-                                Toast.makeText(context, "Импортировано заметок: ${importedNotes.size}", Toast.LENGTH_SHORT).show()
-                                showImportDialog = false
+                Button(
+                    enabled = importJsonInput.isNotBlank(),
+                    onClick = {
+                        try {
+                            val notes = jsonConfig.decodeFromString<List<Note>>(importJsonInput.trim())
+                            if (notes.isEmpty()) {
+                                importError = "Список заметок в JSON пуст"
                             } else {
-                                Toast.makeText(context, "Не удалось распознать формат JSON", Toast.LENGTH_SHORT).show()
+                                scope.launch {
+                                    repository.restoreNotes(notes)
+                                    showImportDialog = false
+                                    snackbarHostState.showSnackbar("Успешно импортировано заметок: ${notes.size}")
+                                }
                             }
+                        } catch (e: Exception) {
+                            importError = "Ошибка парсинга JSON: ${e.localizedMessage ?: "неверный формат"}"
                         }
                     }
-                }) {
+                ) {
                     Text("Импортировать")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showImportDialog = false }) {
-                    Text("Отмена")
-                }
+                TextButton(onClick = { showImportDialog = false }) { Text("Отмена") }
             }
         )
     }
-}
-
-private fun shareJsonBackup(context: Context, json: String) {
-    val intent = Intent(Intent.ACTION_SEND).apply {
-        type = "application/json"
-        putExtra(Intent.EXTRA_SUBJECT, "Notes_Backup.json")
-        putExtra(Intent.EXTRA_TEXT, json)
-    }
-    context.startActivity(Intent.createChooser(intent, "Экспорт резервной копии"))
 }

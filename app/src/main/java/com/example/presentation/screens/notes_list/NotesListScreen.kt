@@ -1,179 +1,92 @@
 package com.example.presentation.screens.notes_list
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
-import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
-import androidx.compose.foundation.lazy.staggeredgrid.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Archive
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.CreateNewFolder
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.FilterList
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.GridView
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.PushPin
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.SelectAll
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.ViewAgenda
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.domain.model.Note
-import com.example.domain.model.NotesViewMode
 import com.example.presentation.components.FilterBottomSheet
+import com.example.presentation.components.HelpDialog
 import com.example.presentation.components.NoteCard
-import com.example.presentation.components.PulsingFab
-import com.example.ui.theme.NoteTagColors
-import kotlinx.coroutines.flow.flowOf
+import com.example.presentation.components.TooltipIconButton
+import com.example.ui.theme.NoteColors
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NotesListScreen(
     viewModel: NotesListViewModel,
     onNoteClick: (Long) -> Unit,
-    onCreateNoteClick: () -> Unit,
     onSearchClick: () -> Unit,
     onSettingsClick: () -> Unit,
     onArchiveClick: () -> Unit,
-    onTrashClick: () -> Unit,
-    modifier: Modifier = Modifier
+    onTrashClick: () -> Unit
 ) {
     val state by viewModel.uiState.collectAsState()
-    val snackbarHostState = remember { SnackbarHostState() }
-    var showMenu by remember { mutableStateOf(false) }
-
-    var showPinDialog by remember { mutableStateOf(false) }
-    var pendingNoteId by remember { mutableStateOf<Long?>(null) }
-    var enteredPin by remember { mutableStateOf("") }
-    var pinError by remember { mutableStateOf(false) }
-
-    // Диалоги для массовых операций
-    var showBatchFolderDialog by remember { mutableStateOf(false) }
-    var batchFolderInput by remember { mutableStateOf("") }
-    var showBatchColorDialog by remember { mutableStateOf(false) }
-
-    val isPinEnabled by (viewModel.preferencesManager?.isPinEnabledFlow ?: flowOf(false)).collectAsState(initial = false)
-    val actualPin by (viewModel.preferencesManager?.pinCodeFlow ?: flowOf("0000")).collectAsState(initial = "0000")
-
-    val onNoteCardClick = { note: Note ->
-        if (state.isSelectionMode) {
-            viewModel.toggleNoteSelection(note.id)
-        } else if (note.isLocked && isPinEnabled) {
-            pendingNoteId = note.id
-            enteredPin = ""
-            pinError = false
-            showPinDialog = true
-        } else {
-            onNoteClick(note.id)
-        }
-    }
+    var showFilterSheet by remember { mutableStateOf(false) }
+    var showFolderDialog by remember { mutableStateOf(false) }
+    var newFolderName by remember { mutableStateOf("") }
+    var showColorDialog by remember { mutableStateOf(false) }
+    var showHelpDialog by remember { mutableStateOf(false) }
 
     Scaffold(
-        modifier = modifier.fillMaxSize(),
         topBar = {
             if (state.isSelectionMode) {
-                // TopAppBar в режиме множественного выбора
                 TopAppBar(
+                    title = { Text("${state.selectedNoteIds.size} выбрано") },
                     navigationIcon = {
-                        IconButton(onClick = { viewModel.clearSelection() }) {
-                            Icon(Icons.Default.Close, contentDescription = "Отмена")
-                        }
-                    },
-                    title = {
-                        Text(
-                            text = "${state.selectedNoteIds.size}",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold
+                        TooltipIconButton(
+                            onClick = { viewModel.clearSelection() },
+                            icon = Icons.Filled.Close,
+                            tooltip = "Снять выделение"
                         )
                     },
                     actions = {
-                        IconButton(onClick = {
-                            if (state.selectedNoteIds.size == state.notes.size) {
-                                viewModel.clearSelection()
-                            } else {
-                                viewModel.selectAll(state.notes.map { it.id })
-                            }
-                        }) {
-                            Icon(Icons.Default.SelectAll, contentDescription = "Выбрать все")
-                        }
-                        IconButton(onClick = { showBatchFolderDialog = true }) {
-                            Icon(Icons.Default.Folder, contentDescription = "Папка")
-                        }
-                        IconButton(onClick = { showBatchColorDialog = true }) {
-                            Icon(Icons.Default.Palette, contentDescription = "Цвет")
-                        }
-                        IconButton(onClick = { viewModel.archiveSelected() }) {
-                            Icon(Icons.Default.Archive, contentDescription = "В архив")
-                        }
-                        IconButton(onClick = { viewModel.deleteSelected() }) {
-                            Icon(Icons.Default.Delete, contentDescription = "Удалить")
-                        }
+                        TooltipIconButton(
+                            onClick = { viewModel.selectAllNotes() },
+                            icon = Icons.Filled.SelectAll,
+                            tooltip = "Выбрать все заметки"
+                        )
+                        TooltipIconButton(
+                            onClick = { showColorDialog = true },
+                            icon = Icons.Filled.Palette,
+                            tooltip = "Изменить цвет выбранных"
+                        )
+                        TooltipIconButton(
+                            onClick = { showFolderDialog = true },
+                            icon = Icons.Filled.Folder,
+                            tooltip = "Переместить в папку"
+                        )
+                        TooltipIconButton(
+                            onClick = { viewModel.archiveSelectedNotes() },
+                            icon = Icons.Filled.Archive,
+                            tooltip = "Переместить в архив"
+                        )
+                        TooltipIconButton(
+                            onClick = { viewModel.deleteSelectedNotes() },
+                            icon = Icons.Filled.Delete,
+                            tooltip = "Удалить в корзину"
+                        )
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                        actionIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                        navigationIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                 )
             } else {
@@ -181,216 +94,259 @@ fun NotesListScreen(
                     title = {
                         Column {
                             Text(
-                                text = "Заметки",
-                                style = MaterialTheme.typography.headlineMedium,
-                                fontWeight = FontWeight.Bold
+                                text = state.selectedFolder ?: "Все заметки",
+                                fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.titleLarge
                             )
-                            Text(
-                                text = "${state.notes.size} заметок",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            if (state.selectedTag != null || state.selectedColor != null) {
+                                Text(
+                                    text = buildString {
+                                        if (state.selectedTag != null) append("#${state.selectedTag} ")
+                                        if (state.selectedColor != null) append("цветовой фильтр")
+                                    },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
                         }
                     },
                     actions = {
-                        IconButton(onClick = onSearchClick) {
-                            Icon(Icons.Default.Search, contentDescription = "Поиск")
-                        }
-                        IconButton(onClick = { viewModel.toggleViewMode() }) {
-                            Icon(
-                                imageVector = if (state.viewMode == NotesViewMode.STAGGERED_GRID) {
-                                    Icons.Default.ViewAgenda
-                                } else {
-                                    Icons.Default.GridView
-                                },
-                                contentDescription = "Вид списка"
-                            )
-                        }
-                        IconButton(onClick = { viewModel.setFilterSheetOpen(true) }) {
-                            Icon(Icons.Default.FilterList, contentDescription = "Фильтры")
-                        }
+                        TooltipIconButton(
+                            onClick = onSearchClick,
+                            icon = Icons.Filled.Search,
+                            tooltip = "Поиск по заметкам и тегам"
+                        )
+                        TooltipIconButton(
+                            onClick = { showFilterSheet = true },
+                            icon = Icons.AutoMirrored.Filled.Sort,
+                            tooltip = "Сортировка и фильтры"
+                        )
+                        TooltipIconButton(
+                            onClick = { viewModel.toggleLayout() },
+                            icon = if (state.isGridLayout) Icons.Filled.ViewAgenda else Icons.Filled.GridView,
+                            tooltip = if (state.isGridLayout) "Вид: в один столбец" else "Вид: в две колонки"
+                        )
+
+                        var menuExpanded by remember { mutableStateOf(false) }
                         Box {
-                            IconButton(onClick = { showMenu = true }) {
-                                Icon(Icons.Default.MoreVert, contentDescription = "Ещё")
-                            }
+                            TooltipIconButton(
+                                onClick = { menuExpanded = true },
+                                icon = Icons.Filled.MoreVert,
+                                tooltip = "Главное меню"
+                            )
                             DropdownMenu(
-                                expanded = showMenu,
-                                onDismissRequest = { showMenu = false }
+                                expanded = menuExpanded,
+                                onDismissRequest = { menuExpanded = false }
                             ) {
                                 DropdownMenuItem(
-                                    text = { Text("Выбрать заметки") },
-                                    leadingIcon = { Icon(Icons.Default.SelectAll, contentDescription = null) },
-                                    onClick = {
-                                        showMenu = false
-                                        if (state.notes.isNotEmpty()) {
-                                            viewModel.toggleNoteSelection(state.notes.first().id)
+                                    text = {
+                                        Column {
+                                            Text("Архив")
+                                            Text("Архивированные заметки", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Архив") },
-                                    leadingIcon = { Icon(Icons.Default.Archive, contentDescription = null) },
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Archive, null) },
                                     onClick = {
-                                        showMenu = false
+                                        menuExpanded = false
                                         onArchiveClick()
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Корзина") },
-                                    leadingIcon = { Icon(Icons.Default.DeleteOutline, contentDescription = null) },
+                                    text = {
+                                        Column {
+                                            Text("Корзина")
+                                            Text("Удаленные заметки", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Delete, null) },
                                     onClick = {
-                                        showMenu = false
+                                        menuExpanded = false
                                         onTrashClick()
                                     }
                                 )
+                                HorizontalDivider()
                                 DropdownMenuItem(
-                                    text = { Text("Настройки") },
-                                    leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) },
+                                    text = {
+                                        Column {
+                                            Text("Справка и подсказки")
+                                            Text("Как пользоваться функциями", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.HelpOutline, null) },
                                     onClick = {
-                                        showMenu = false
+                                        menuExpanded = false
+                                        showHelpDialog = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Настройки")
+                                            Text("PIN-код, темы, бэкап", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Settings, null) },
+                                    onClick = {
+                                        menuExpanded = false
                                         onSettingsClick()
                                     }
                                 )
                             }
                         }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.background
-                    )
+                    }
                 )
             }
         },
         floatingActionButton = {
-            if (!state.isSelectionMode) {
-                PulsingFab(onClick = onCreateNoteClick)
+            FloatingActionButton(
+                onClick = { onNoteClick(0L) },
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
+            ) {
+                Icon(imageVector = Icons.Filled.Add, contentDescription = "Создать новую заметку")
             }
-        },
-        snackbarHost = { SnackbarHost(snackbarHostState) }
-    ) { innerPadding ->
+        }
+    ) { paddingValues ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
+                .padding(paddingValues)
         ) {
-            // Горизонтальные фильтры по папкам (если есть папки)
-            if (state.allFolders.isNotEmpty()) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+            // Active Filter Chips Bar (if any filter is active)
+            val hasActiveFilter = state.selectedColor != null || state.selectedTag != null || state.selectedFolder != null
+            if (hasActiveFilter) {
+                Surface(
+                    tonalElevation = 2.dp,
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    FilterChip(
-                        selected = state.selectedFolder == null,
-                        onClick = { viewModel.onFolderSelect(null) },
-                        label = { Text("Все папки") }
-                    )
-                    state.allFolders.forEach { folder ->
-                        FilterChip(
-                            selected = state.selectedFolder == folder,
-                            onClick = {
-                                viewModel.onFolderSelect(
-                                    if (state.selectedFolder == folder) null else folder
+                    LazyRow(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        item {
+                            SuggestionChip(
+                                onClick = { viewModel.clearAllFilters() },
+                                label = { Text("Сбросить всё") },
+                                icon = { Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(14.dp)) }
+                            )
+                        }
+                        if (state.selectedFolder != null) {
+                            item {
+                                InputChip(
+                                    selected = true,
+                                    onClick = { viewModel.setFolderFilter(null) },
+                                    label = { Text("Папка: ${state.selectedFolder}") },
+                                    trailingIcon = { Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(12.dp)) }
                                 )
-                            },
-                            label = { Text("📁 $folder") }
-                        )
-                    }
-                }
-            }
-
-            // Горизонтальные быстрые чипсы по тегам
-            val allTags = remember(state.notes) {
-                state.notes.flatMap { it.tags }.distinct()
-            }
-
-            if (allTags.isNotEmpty()) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    FilterChip(
-                        selected = state.selectedTagFilter == null,
-                        onClick = { viewModel.onTagFilterSelect(null) },
-                        label = { Text("Все теги") }
-                    )
-                    allTags.forEach { tag ->
-                        FilterChip(
-                            selected = state.selectedTagFilter == tag,
-                            onClick = {
-                                viewModel.onTagFilterSelect(
-                                    if (state.selectedTagFilter == tag) null else tag
+                            }
+                        }
+                        if (state.selectedTag != null) {
+                            item {
+                                InputChip(
+                                    selected = true,
+                                    onClick = { viewModel.setTagFilter(null) },
+                                    label = { Text("#${state.selectedTag}") },
+                                    trailingIcon = { Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(12.dp)) }
                                 )
-                            },
-                            label = { Text("#$tag") }
-                        )
-                    }
-                }
-            }
-
-            // Список заметок или пустое состояние
-            if (state.notes.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(32.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = "Здесь будут ваши заметки",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "Нажмите + чтобы записать первую мысль",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.outline
-                        )
-                    }
-                }
-            } else {
-                when (state.viewMode) {
-                    NotesViewMode.STAGGERED_GRID -> {
-                        LazyVerticalStaggeredGrid(
-                            columns = StaggeredGridCells.Fixed(2),
-                            contentPadding = PaddingValues(16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            verticalItemSpacing = 10.dp,
-                            modifier = Modifier.fillMaxSize()
-                        ) {
-                            items(state.notes, key = { it.id }) { note ->
-                                AnimatedVisibility(
-                                    visible = true,
-                                    enter = fadeIn(tween(250)) + slideInVertically(tween(250)) { 40 }
-                                ) {
-                                    NoteCard(
-                                        note = note,
-                                        onClick = { onNoteCardClick(note) },
-                                        onLongClick = { viewModel.toggleNoteSelection(note.id) },
-                                        isSelected = state.selectedNoteIds.contains(note.id),
-                                        isSelectionMode = state.isSelectionMode
-                                    )
-                                }
+                            }
+                        }
+                        if (state.selectedColor != null) {
+                            item {
+                                InputChip(
+                                    selected = true,
+                                    onClick = { viewModel.setColorFilter(null) },
+                                    label = { Text("Цветной фильтр") },
+                                    trailingIcon = { Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(12.dp)) }
+                                )
                             }
                         }
                     }
-                    NotesViewMode.LINEAR_LIST, NotesViewMode.COMPACT -> {
-                        LazyColumn(
-                            contentPadding = PaddingValues(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                }
+            }
+
+            Box(modifier = Modifier.fillMaxSize().weight(1f)) {
+                val notesToDisplay = state.filteredNotes
+
+                if (notesToDisplay.isEmpty()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Description,
+                            contentDescription = null,
+                            modifier = Modifier.size(72.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = if (hasActiveFilter) "Нет заметок с такими фильтрами" else "У вас пока нет заметок",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = if (hasActiveFilter) "Попробуйте изменить параметры поиска или сбросить фильтры" else "Нажмите кнопку «+», чтобы создать заметку или чек-лист",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        )
+                        if (hasActiveFilter) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            FilledTonalButton(onClick = { viewModel.clearAllFilters() }) {
+                                Text("Сбросить фильтры")
+                            }
+                        }
+                    }
+                } else {
+                    if (state.isGridLayout) {
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(2),
+                            contentPadding = PaddingValues(12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
                             modifier = Modifier.fillMaxSize()
                         ) {
-                            items(state.notes, key = { it.id }) { note ->
+                            items(notesToDisplay, key = { it.id }) { note ->
                                 NoteCard(
                                     note = note,
-                                    onClick = { onNoteCardClick(note) },
+                                    onClick = {
+                                        if (state.isSelectionMode) {
+                                            viewModel.toggleNoteSelection(note.id)
+                                        } else {
+                                            onNoteClick(note.id)
+                                        }
+                                    },
                                     onLongClick = { viewModel.toggleNoteSelection(note.id) },
+                                    onPinClick = { viewModel.togglePin(note) },
+                                    isSelected = state.selectedNoteIds.contains(note.id),
+                                    isSelectionMode = state.isSelectionMode
+                                )
+                            }
+                        }
+                    } else {
+                        LazyColumn(
+                            contentPadding = PaddingValues(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            items(notesToDisplay, key = { it.id }) { note ->
+                                NoteCard(
+                                    note = note,
+                                    onClick = {
+                                        if (state.isSelectionMode) {
+                                            viewModel.toggleNoteSelection(note.id)
+                                        } else {
+                                            onNoteClick(note.id)
+                                        }
+                                    },
+                                    onLongClick = { viewModel.toggleNoteSelection(note.id) },
+                                    onPinClick = { viewModel.togglePin(note) },
                                     isSelected = state.selectedNoteIds.contains(note.id),
                                     isSelectionMode = state.isSelectionMode
                                 )
@@ -402,92 +358,105 @@ fun NotesListScreen(
         }
     }
 
-    // Диалог ввода PIN-кода для защищенных заметок
-    if (showPinDialog) {
-        AlertDialog(
-            onDismissRequest = {
-                showPinDialog = false
-                pendingNoteId = null
+    if (showFilterSheet) {
+        FilterBottomSheet(
+            selectedColor = state.selectedColor,
+            onColorSelected = { viewModel.setColorFilter(it) },
+            selectedTag = state.selectedTag,
+            onTagSelected = { viewModel.setTagFilter(it) },
+            availableTags = state.availableTags,
+            selectedFolder = state.selectedFolder,
+            onFolderSelected = { viewModel.setFolderFilter(it) },
+            availableFolders = state.availableFolders,
+            sortOrder = state.sortOrder,
+            onSortOrderSelected = { viewModel.setSortOrder(it) },
+            onClearAllFilters = {
+                viewModel.clearAllFilters()
+                showFilterSheet = false
             },
-            title = { Text("Заметка защищена") },
+            onDismiss = { showFilterSheet = false }
+        )
+    }
+
+    if (showHelpDialog) {
+        HelpDialog(onDismiss = { showHelpDialog = false })
+    }
+
+    if (showFolderDialog) {
+        AlertDialog(
+            onDismissRequest = { showFolderDialog = false },
+            title = { Text("Переместить в папку") },
             text = {
                 Column {
                     Text(
-                        text = "Введите PIN-код для открытия заметки:",
-                        style = MaterialTheme.typography.bodyMedium
+                        text = "Выберите папку для выбранных заметок (${state.selectedNoteIds.size}):",
+                        style = MaterialTheme.typography.bodySmall
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
-                        value = enteredPin,
-                        onValueChange = {
-                            enteredPin = it.take(6)
-                            pinError = false
-                        },
-                        visualTransformation = PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                        isError = pinError,
-                        label = { Text("PIN-код") },
-                        supportingText = if (pinError) {
-                            { Text("Неверный PIN-код", color = MaterialTheme.colorScheme.error) }
-                        } else null,
-                        singleLine = true,
+                        value = newFolderName,
+                        onValueChange = { newFolderName = it },
+                        label = { Text("Имя папки") },
                         modifier = Modifier.fillMaxWidth()
                     )
+                    if (state.availableFolders.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            items(state.availableFolders) { f ->
+                                AssistChip(
+                                    onClick = { newFolderName = f },
+                                    label = { Text(f) }
+                                )
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    TextButton(
+                        onClick = {
+                            viewModel.moveSelectedToFolder(null)
+                            showFolderDialog = false
+                        }
+                    ) {
+                        Text("Убрать из папки")
+                    }
                 }
             },
             confirmButton = {
-                Button(
-                    onClick = {
-                        if (enteredPin == actualPin) {
-                            val id = pendingNoteId
-                            showPinDialog = false
-                            pendingNoteId = null
-                            if (id != null) {
-                                onNoteClick(id)
-                            }
-                        } else {
-                            pinError = true
-                        }
+                Button(onClick = {
+                    if (newFolderName.isNotBlank()) {
+                        viewModel.moveSelectedToFolder(newFolderName.trim())
                     }
-                ) {
-                    Text("Открыть")
+                    showFolderDialog = false
+                    newFolderName = ""
+                }) {
+                    Text("Переместить")
                 }
             },
             dismissButton = {
-                TextButton(
-                    onClick = {
-                        showPinDialog = false
-                        pendingNoteId = null
-                    }
-                ) {
-                    Text("Отмена")
-                }
+                TextButton(onClick = { showFolderDialog = false }) { Text("Отмена") }
             }
         )
     }
 
-    // Диалог выбора цвета для выделенных заметок
-    if (showBatchColorDialog) {
+    if (showColorDialog) {
         AlertDialog(
-            onDismissRequest = { showBatchColorDialog = false },
-            title = { Text("Выбрать цвет") },
+            onDismissRequest = { showColorDialog = false },
+            title = { Text("Выберите цвет для заметок") },
             text = {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    NoteTagColors.list.forEachIndexed { index, color ->
+                    items(NoteColors) { hex ->
+                        val color = try { Color(android.graphics.Color.parseColor(hex)) } catch (_: Exception) { Color.LightGray }
                         Box(
                             modifier = Modifier
-                                .size(36.dp)
+                                .size(40.dp)
                                 .clip(CircleShape)
                                 .background(color)
                                 .clickable {
-                                    viewModel.changeColorSelected(index)
-                                    showBatchColorDialog = false
+                                    viewModel.changeColorForSelected(hex)
+                                    showColorDialog = false
                                 }
                         )
                     }
@@ -495,77 +464,7 @@ fun NotesListScreen(
             },
             confirmButton = {},
             dismissButton = {
-                TextButton(onClick = { showBatchColorDialog = false }) {
-                    Text("Отмена")
-                }
-            }
-        )
-    }
-
-    // Диалог перемещения в папку для выделенных заметок
-    if (showBatchFolderDialog) {
-        AlertDialog(
-            onDismissRequest = { showBatchFolderDialog = false },
-            title = { Text("Переместить в папку") },
-            text = {
-                Column {
-                    OutlinedTextField(
-                        value = batchFolderInput,
-                        onValueChange = { batchFolderInput = it },
-                        label = { Text("Название папки") },
-                        placeholder = { Text("например, Работа или Личное") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    if (state.allFolders.isNotEmpty()) {
-                        Spacer(Modifier.height(12.dp))
-                        Text("Существующие папки:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Spacer(Modifier.height(6.dp))
-                        Row(
-                            modifier = Modifier.horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            state.allFolders.forEach { f ->
-                                FilterChip(
-                                    selected = batchFolderInput == f,
-                                    onClick = { batchFolderInput = f },
-                                    label = { Text(f) }
-                                )
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        viewModel.moveSelectedToFolder(batchFolderInput.trim())
-                        showBatchFolderDialog = false
-                        batchFolderInput = ""
-                    }
-                ) {
-                    Text("Переместить")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showBatchFolderDialog = false }) {
-                    Text("Отмена")
-                }
-            }
-        )
-    }
-
-    // Нижняя шторка фильтров
-    if (state.isFilterSheetOpen) {
-        FilterBottomSheet(
-            filterState = state.filterState,
-            folders = state.allFolders,
-            onFilterChange = { newFilters ->
-                viewModel.updateFilters(newFilters)
-            },
-            onDismiss = {
-                viewModel.setFilterSheetOpen(false)
+                TextButton(onClick = { showColorDialog = false }) { Text("Закрыть") }
             }
         )
     }

@@ -23,9 +23,6 @@ class UserPreferencesManager(private val context: Context) {
 
     private val KEY_THEME = stringPreferencesKey("app_theme")
     private val KEY_FONT_SIZE = stringPreferencesKey("font_size")
-    private val KEY_VIEW_MODE = stringPreferencesKey("view_mode")
-    private val KEY_HAPTIC = booleanPreferencesKey("haptic_feedback")
-    private val KEY_FIRST_LAUNCH = booleanPreferencesKey("is_first_launch")
     private val KEY_PIN_CODE = stringPreferencesKey("pin_code")
     private val KEY_PIN_ENABLED = booleanPreferencesKey("pin_enabled")
 
@@ -55,10 +52,6 @@ class UserPreferencesManager(private val context: Context) {
         }
     }
 
-    val isFirstLaunchFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
-        prefs[KEY_FIRST_LAUNCH] ?: true
-    }
-
     suspend fun setTheme(theme: AppThemePreset) {
         context.dataStore.edit { prefs ->
             prefs[KEY_THEME] = theme.name
@@ -68,12 +61,6 @@ class UserPreferencesManager(private val context: Context) {
     suspend fun setFontSize(scale: FontSizeScale) {
         context.dataStore.edit { prefs ->
             prefs[KEY_FONT_SIZE] = scale.name
-        }
-    }
-
-    suspend fun setOnboardingFinished() {
-        context.dataStore.edit { prefs ->
-            prefs[KEY_FIRST_LAUNCH] = false
         }
     }
 

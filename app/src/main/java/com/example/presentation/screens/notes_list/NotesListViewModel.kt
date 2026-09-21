@@ -2,258 +2,211 @@ package com.example.presentation.screens.notes_list
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.data.preferences.UserPreferencesManager
-import com.example.domain.model.DateFilter
-import com.example.domain.model.FilterState
 import com.example.domain.model.Note
-import com.example.domain.model.NoteSortOrder
-import com.example.domain.model.NotesViewMode
 import com.example.domain.repository.NoteRepository
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+
+enum class SortOrder(val label: String) {
+    DATE_UPDATED("По дате изменения"),
+    DATE_CREATED("По дате создания"),
+    TITLE("По названию (А-Я)")
+}
 
 data class NotesListUiState(
     val notes: List<Note> = emptyList(),
-    val filterState: FilterState = FilterState(),
-    val viewMode: NotesViewMode = NotesViewMode.STAGGERED_GRID,
-    val selectedTagFilter: String? = null,
+    val filteredNotes: List<Note> = emptyList(),
+    val selectedColor: String? = null,
+    val selectedTag: String? = null,
     val selectedFolder: String? = null,
-    val allFolders: List<String> = emptyList(),
+    val sortOrder: SortOrder = SortOrder.DATE_UPDATED,
+    val availableTags: List<String> = emptyList(),
+    val availableFolders: List<String> = emptyList(),
+    val isSelectionMode: Boolean = false,
     val selectedNoteIds: Set<Long> = emptySet(),
-    val isFilterSheetOpen: Boolean = false,
-    val lastDeletedNote: Note? = null
-) {
-    val isSelectionMode: Boolean get() = selectedNoteIds.isNotEmpty()
-}
+    val isGridLayout: Boolean = true
+)
 
 class NotesListViewModel(
-    private val repository: NoteRepository,
-    val preferencesManager: UserPreferencesManager? = null
+    private val repository: NoteRepository
 ) : ViewModel() {
 
-    private val _filterState = MutableStateFlow(FilterState())
-    private val _viewMode = MutableStateFlow(NotesViewMode.STAGGERED_GRID)
-    private val _selectedTag = MutableStateFlow<String?>(null)
-    private val _selectedFolder = MutableStateFlow<String?>(null)
-    private val _selectedNoteIds = MutableStateFlow<Set<Long>>(emptySet())
-    private val _isFilterSheetOpen = MutableStateFlow(false)
-    private val _lastDeletedNote = MutableStateFlow<Note?>(null)
+    private val _uiState = MutableStateFlow(NotesListUiState())
+    val uiState: StateFlow<NotesListUiState> = _uiState.asStateFlow()
 
-    val uiState: StateFlow<NotesListUiState> = combine(
-        repository.getActiveNotes(),
-        _filterState,
-        _viewMode,
-        _selectedTag,
-        _selectedFolder,
-        _selectedNoteIds,
-        _isFilterSheetOpen
-    ) { args ->
-        @Suppress("UNCHECKED_CAST")
-        val notes = args[0] as List<Note>
-        val filters = args[1] as FilterState
-        val viewMode = args[2] as NotesViewMode
-        val tag = args[3] as String?
-        val folder = args[4] as String?
-        @Suppress("UNCHECKED_CAST")
-        val selectedIds = args[5] as Set<Long>
-        val sheetOpen = args[6] as Boolean
+    init {
+        loadNotes()
+        loadFolders()
+    }
 
-        val folders = notes.map { it.folder.trim() }.filter { it.isNotBlank() }.distinct().sorted()
+    private fun loadNotes() {
+        viewModelScope.launch {
+            repository.getActiveNotes().collect { notes ->
+                val allTags = notes.flatMap { it.tags }.distinct().sorted()
+                _uiState.update { current ->
+                    current.copy(
+                        notes = notes,
+                        availableTags = allTags,
+                        filteredNotes = sortAndFilterNotes(notes, current.selectedColor, current.selectedTag, current.selectedFolder, current.sortOrder)
+                    )
+                }
+            }
+        }
+    }
 
+    private fun loadFolders() {
+        viewModelScope.launch {
+            repository.getAllFolders().collect { folders ->
+                _uiState.update { it.copy(availableFolders = folders) }
+            }
+        }
+    }
+
+    private fun sortAndFilterNotes(
+        notes: List<Note>,
+        color: String?,
+        tag: String?,
+        folder: String?,
+        sortOrder: SortOrder
+    ): List<Note> {
         val filtered = notes.filter { note ->
-            val matchesFolder = if (folder != null) {
-                if (folder == "NO_FOLDER") note.folder.isBlank() else note.folder == folder
-            } else true
-            val matchesTag = if (tag != null) note.tags.contains(tag) else true
-            val matchesSelectedTags = if (filters.selectedTags.isNotEmpty()) {
-                filters.selectedTags.any { note.tags.contains(it) }
-            } else true
-            val matchesColors = if (filters.selectedColors.isNotEmpty()) {
-                filters.selectedColors.contains(note.colorIndex)
-            } else true
-            val matchesReminder = if (filters.onlyWithReminder) {
-                note.reminderTime != null
-            } else true
-            val matchesPinned = if (filters.onlyPinned) {
-                note.isPinned
-            } else true
-
-            val matchesDate = when (filters.dateFilter) {
-                DateFilter.ALL -> true
-                DateFilter.TODAY -> {
-                    val startOfDay = System.currentTimeMillis() - (System.currentTimeMillis() % 86400000L)
-                    note.updatedAt >= startOfDay
-                }
-                DateFilter.WEEK -> {
-                    val weekAgo = System.currentTimeMillis() - 7 * 86400000L
-                    note.updatedAt >= weekAgo
-                }
-                DateFilter.MONTH -> {
-                    val monthAgo = System.currentTimeMillis() - 30L * 86400000L
-                    note.updatedAt >= monthAgo
-                }
-            }
-
-            matchesFolder && matchesTag && matchesSelectedTags && matchesColors && matchesReminder && matchesPinned && matchesDate
-        }.sortedWith { n1, n2 ->
-            // Сначала закрепленные (если сортировка не по дате в обратном порядке)
-            if (n1.isPinned != n2.isPinned) {
-                if (n1.isPinned) -1 else 1
-            } else {
-                when (filters.sortOrder) {
-                    NoteSortOrder.BY_UPDATED -> n2.updatedAt.compareTo(n1.updatedAt)
-                    NoteSortOrder.BY_UPDATED_ASC -> n1.updatedAt.compareTo(n2.updatedAt)
-                    NoteSortOrder.BY_CREATED -> n2.createdAt.compareTo(n1.createdAt)
-                    NoteSortOrder.BY_TITLE_ASC -> n1.title.compareTo(n2.title, ignoreCase = true)
-                    NoteSortOrder.BY_TITLE_DESC -> n2.title.compareTo(n1.title, ignoreCase = true)
-                    NoteSortOrder.BY_COLOR -> n1.colorIndex.compareTo(n2.colorIndex)
-                }
-            }
+            val matchesColor = color == null || note.colorHex.equals(color, ignoreCase = true)
+            val matchesTag = tag == null || note.tags.contains(tag)
+            val matchesFolder = folder == null || note.folder == folder
+            matchesColor && matchesTag && matchesFolder
         }
 
-        NotesListUiState(
-            notes = filtered,
-            filterState = filters,
-            viewMode = viewMode,
-            selectedTagFilter = tag,
-            selectedFolder = folder,
-            allFolders = folders,
-            selectedNoteIds = selectedIds,
-            isFilterSheetOpen = sheetOpen,
-            lastDeletedNote = _lastDeletedNote.value
-        )
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = NotesListUiState()
-    )
-
-    fun onTagFilterSelect(tag: String?) {
-        _selectedTag.value = tag
-    }
-
-    fun onFolderSelect(folder: String?) {
-        _selectedFolder.value = folder
-    }
-
-    fun toggleViewMode() {
-        _viewMode.value = when (_viewMode.value) {
-            NotesViewMode.STAGGERED_GRID -> NotesViewMode.LINEAR_LIST
-            NotesViewMode.LINEAR_LIST -> NotesViewMode.COMPACT
-            NotesViewMode.COMPACT -> NotesViewMode.STAGGERED_GRID
+        return when (sortOrder) {
+            SortOrder.DATE_UPDATED -> filtered.sortedWith(compareByDescending<Note> { it.isPinned }.thenByDescending { it.updatedAt })
+            SortOrder.DATE_CREATED -> filtered.sortedWith(compareByDescending<Note> { it.isPinned }.thenByDescending { it.createdAt })
+            SortOrder.TITLE -> filtered.sortedWith(compareByDescending<Note> { it.isPinned }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.title.ifBlank { it.content } })
         }
     }
 
-    fun setFilterSheetOpen(isOpen: Boolean) {
-        _isFilterSheetOpen.value = isOpen
-    }
-
-    fun updateFilters(newFilters: FilterState) {
-        _filterState.value = newFilters
-    }
-
-    fun setSortOrder(sortOrder: NoteSortOrder) {
-        _filterState.value = _filterState.value.copy(sortOrder = sortOrder)
-    }
-
-    // Множественный выбор (Multi-selection)
-    fun toggleNoteSelection(noteId: Long) {
-        val current = _selectedNoteIds.value.toMutableSet()
-        if (current.contains(noteId)) {
-            current.remove(noteId)
-        } else {
-            current.add(noteId)
-        }
-        _selectedNoteIds.value = current
-    }
-
-    fun selectAll(noteIds: List<Long>) {
-        _selectedNoteIds.value = noteIds.toSet()
-    }
-
-    fun clearSelection() {
-        _selectedNoteIds.value = emptySet()
-    }
-
-    fun deleteSelected() {
-        val ids = _selectedNoteIds.value.toList()
-        if (ids.isNotEmpty()) {
-            viewModelScope.launch {
-                repository.batchMoveToTrash(ids)
-                clearSelection()
-            }
+    fun setSortOrder(order: SortOrder) {
+        _uiState.update {
+            it.copy(
+                sortOrder = order,
+                filteredNotes = sortAndFilterNotes(it.notes, it.selectedColor, it.selectedTag, it.selectedFolder, order)
+            )
         }
     }
 
-    fun archiveSelected() {
-        val ids = _selectedNoteIds.value.toList()
-        if (ids.isNotEmpty()) {
-            viewModelScope.launch {
-                repository.batchArchive(ids, true)
-                clearSelection()
-            }
+    fun clearAllFilters() {
+        _uiState.update {
+            it.copy(
+                selectedColor = null,
+                selectedTag = null,
+                selectedFolder = null,
+                filteredNotes = sortAndFilterNotes(it.notes, null, null, null, it.sortOrder)
+            )
         }
     }
 
-    fun pinSelected(pin: Boolean) {
-        val ids = _selectedNoteIds.value.toList()
-        if (ids.isNotEmpty()) {
-            viewModelScope.launch {
-                repository.batchTogglePin(ids, pin)
-                clearSelection()
-            }
+    fun setColorFilter(color: String?) {
+        _uiState.update {
+            it.copy(
+                selectedColor = color,
+                filteredNotes = sortAndFilterNotes(it.notes, color, it.selectedTag, it.selectedFolder, it.sortOrder)
+            )
         }
     }
 
-    fun changeColorSelected(colorIndex: Int) {
-        val ids = _selectedNoteIds.value.toList()
-        if (ids.isNotEmpty()) {
-            viewModelScope.launch {
-                repository.batchChangeColor(ids, colorIndex)
-                clearSelection()
-            }
+    fun setTagFilter(tag: String?) {
+        _uiState.update {
+            it.copy(
+                selectedTag = tag,
+                filteredNotes = sortAndFilterNotes(it.notes, it.selectedColor, tag, it.selectedFolder, it.sortOrder)
+            )
         }
     }
 
-    fun moveSelectedToFolder(folder: String) {
-        val ids = _selectedNoteIds.value.toList()
-        if (ids.isNotEmpty()) {
-            viewModelScope.launch {
-                repository.batchMoveToFolder(ids, folder)
-                clearSelection()
-            }
+    fun setFolderFilter(folder: String?) {
+        _uiState.update {
+            it.copy(
+                selectedFolder = folder,
+                filteredNotes = sortAndFilterNotes(it.notes, it.selectedColor, it.selectedTag, folder, it.sortOrder)
+            )
         }
     }
 
-    // Одиночные операции
-    fun deleteNote(note: Note) {
-        viewModelScope.launch {
-            _lastDeletedNote.value = note
-            repository.moveToTrash(note.id)
-        }
-    }
-
-    fun undoDelete() {
-        val noteToRestore = _lastDeletedNote.value ?: return
-        viewModelScope.launch {
-            repository.restoreFromTrash(noteToRestore.id)
-            _lastDeletedNote.value = null
-        }
+    fun toggleLayout() {
+        _uiState.update { it.copy(isGridLayout = !it.isGridLayout) }
     }
 
     fun togglePin(note: Note) {
         viewModelScope.launch {
-            repository.togglePin(note.id, !note.isPinned)
+            repository.updateNote(note.copy(isPinned = !note.isPinned, updatedAt = System.currentTimeMillis()))
         }
     }
 
-    fun toggleArchive(note: Note) {
+    fun selectAllNotes() {
+        _uiState.update { current ->
+            val allIds = current.filteredNotes.map { it.id }.toSet()
+            current.copy(selectedNoteIds = allIds, isSelectionMode = allIds.isNotEmpty())
+        }
+    }
+
+    fun toggleNoteSelection(noteId: Long) {
+        _uiState.update { current ->
+            val newSelection = current.selectedNoteIds.toMutableSet()
+            if (newSelection.contains(noteId)) {
+                newSelection.remove(noteId)
+            } else {
+                newSelection.add(noteId)
+            }
+            current.copy(
+                selectedNoteIds = newSelection,
+                isSelectionMode = newSelection.isNotEmpty()
+            )
+        }
+    }
+
+    fun clearSelection() {
+        _uiState.update { it.copy(selectedNoteIds = emptySet(), isSelectionMode = false) }
+    }
+
+    fun deleteSelectedNotes() {
         viewModelScope.launch {
-            repository.toggleArchive(note.id, true)
+            val selected = _uiState.value.selectedNoteIds
+            val toDelete = _uiState.value.notes.filter { selected.contains(it.id) }
+            toDelete.forEach { note ->
+                repository.updateNote(note.copy(isDeleted = true, updatedAt = System.currentTimeMillis()))
+            }
+            clearSelection()
+        }
+    }
+
+    fun archiveSelectedNotes() {
+        viewModelScope.launch {
+            val selected = _uiState.value.selectedNoteIds
+            val toArchive = _uiState.value.notes.filter { selected.contains(it.id) }
+            toArchive.forEach { note ->
+                repository.updateNote(note.copy(isArchived = true, updatedAt = System.currentTimeMillis()))
+            }
+            clearSelection()
+        }
+    }
+
+    fun changeColorForSelected(hex: String) {
+        viewModelScope.launch {
+            val selected = _uiState.value.selectedNoteIds
+            val toUpdate = _uiState.value.notes.filter { selected.contains(it.id) }
+            toUpdate.forEach { note ->
+                repository.updateNote(note.copy(colorHex = hex, updatedAt = System.currentTimeMillis()))
+            }
+            clearSelection()
+        }
+    }
+
+    fun moveSelectedToFolder(folderName: String?) {
+        viewModelScope.launch {
+            val selected = _uiState.value.selectedNoteIds
+            val toUpdate = _uiState.value.notes.filter { selected.contains(it.id) }
+            toUpdate.forEach { note ->
+                repository.updateNote(note.copy(folder = folderName, updatedAt = System.currentTimeMillis()))
+            }
+            clearSelection()
         }
     }
 }

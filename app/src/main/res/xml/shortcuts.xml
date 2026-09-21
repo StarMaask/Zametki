@@ -3,27 +3,14 @@
     <shortcut
         android:shortcutId="new_note"
         android:enabled="true"
-        android:icon="@mipmap/ic_launcher"
+        android:icon="@drawable/ic_shortcut_note"
         android:shortcutShortLabel="@string/shortcut_new_note_short"
         android:shortcutLongLabel="@string/shortcut_new_note_long">
         <intent
             android:action="android.intent.action.VIEW"
-            android:targetPackage="com.example"
+            android:targetPackage="com.aistudio.notes.app"
             android:targetClass="com.example.MainActivity">
-            <extra android:name="com.example.widget.EXTRA_ACTION" android:value="ACTION_NEW_NOTE" />
-        </intent>
-    </shortcut>
-    <shortcut
-        android:shortcutId="new_checklist"
-        android:enabled="true"
-        android:icon="@mipmap/ic_launcher"
-        android:shortcutShortLabel="@string/shortcut_new_list_short"
-        android:shortcutLongLabel="@string/shortcut_new_list_long">
-        <intent
-            android:action="android.intent.action.VIEW"
-            android:targetPackage="com.example"
-            android:targetClass="com.example.MainActivity">
-            <extra android:name="com.example.widget.EXTRA_ACTION" android:value="ACTION_NEW_CHECKLIST" />
+            <extra android:name="shortcut_action" android:value="new_note" />
         </intent>
     </shortcut>
 </shortcuts>

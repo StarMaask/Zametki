@@ -13,30 +13,27 @@ import com.example.MainActivity
 class ReminderBroadcastReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
-        val noteId = intent.getLongExtra(EXTRA_NOTE_ID, -1L)
-        val title = intent.getStringExtra(EXTRA_NOTE_TITLE) ?: "Напоминание о заметке"
-        val content = intent.getStringExtra(EXTRA_NOTE_CONTENT) ?: ""
+        val noteId = intent.getLongExtra("note_id", 0L)
+        val title = intent.getStringExtra("note_title") ?: "Напоминание о заметке"
+        val content = intent.getStringExtra("note_content") ?: "Пора проверить заметку"
 
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val channelId = "notes_reminder_channel"
 
-        // Создаем канал уведомлений
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
-                CHANNEL_ID,
+                channelId,
                 "Напоминания о заметках",
                 NotificationManager.IMPORTANCE_HIGH
-            ).apply {
-                description = "Уведомления о запланированных напоминаниях"
-                enableVibration(true)
-            }
+            )
             notificationManager.createNotificationChannel(channel)
         }
 
-        // PendingIntent для открытия заметки в MainActivity
         val openIntent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-            putExtra(EXTRA_NOTE_ID, noteId)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("open_note_id", noteId)
         }
+
         val pendingIntent = PendingIntent.getActivity(
             context,
             noteId.toInt(),
@@ -44,23 +41,15 @@ class ReminderBroadcastReceiver : BroadcastReceiver() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_popup_reminder)
-            .setContentTitle(title.ifBlank { "Напоминание" })
-            .setContentText(content.ifBlank { "У вас запланировано дело" })
-            .setStyle(NotificationCompat.BigTextStyle().bigText(content))
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+        val notification = NotificationCompat.Builder(context, channelId)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle(title)
+            .setContentText(content)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
             .build()
 
-        notificationManager.notify(noteId.toInt().coerceAtLeast(1), notification)
-    }
-
-    companion object {
-        const val CHANNEL_ID = "notes_reminders_channel"
-        const val EXTRA_NOTE_ID = "extra_note_id"
-        const val EXTRA_NOTE_TITLE = "extra_note_title"
-        const val EXTRA_NOTE_CONTENT = "extra_note_content"
+        notificationManager.notify(noteId.toInt(), notification)
     }
 }

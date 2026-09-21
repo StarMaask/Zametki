@@ -9,94 +9,71 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 
-/**
- * Доступные пресеты темы оформления
- */
 enum class AppThemePreset(val title: String) {
-    PURITY("Чистота"),   // Светлая бело-серо-синяя
-    DEPTH("Глубина"),    // Тёмная угольно-фиолетовая
-    WARMTH("Тепло"),     // Бежево-терракотовая
-    SYSTEM("Как в системе") // Системная + Material You
+    PURITY("Чистота (Светлая)"),
+    DARK_NIGHT("Глубокая ночь (Тёмная)"),
+    OCEAN("Океан (Морская)"),
+    FOREST("Изумруд (Лесная)")
 }
 
-// 1. Схема "Чистота" (Светлая)
-private val PurityColorScheme = lightColorScheme(
-    primary = PurityPrimary,
-    onPrimary = PurityOnPrimary,
-    primaryContainer = PurityPrimaryContainer,
-    onPrimaryContainer = PurityOnPrimaryContainer,
-    secondary = PuritySecondary,
-    onSecondary = PurityOnSecondary,
-    secondaryContainer = PuritySecondaryContainer,
-    onSecondaryContainer = PurityOnSecondaryContainer,
-    background = PurityBackground,
-    onBackground = PurityOnBackground,
-    surface = PuritySurface,
-    onSurface = PurityOnSurface,
-    surfaceVariant = PuritySurfaceVariant,
-    onSurfaceVariant = PurityOnSurfaceVariant,
-    outline = PurityOutline
+private val LightColorScheme = lightColorScheme(
+    primary = Color(0xFF0284C7),
+    onPrimary = Color.White,
+    primaryContainer = Color(0xFFE0F2FE),
+    onPrimaryContainer = Color(0xFF0369A1),
+    secondary = Color(0xFF0D9488),
+    onSecondary = Color.White,
+    background = Color(0xFFF8FAFC),
+    onBackground = Color(0xFF0F172A),
+    surface = Color.White,
+    onSurface = Color(0xFF0F172A),
+    surfaceVariant = Color(0xFFF1F5F9),
+    onSurfaceVariant = Color(0xFF475569)
 )
 
-// 2. Схема "Глубина" (Тёмная)
-private val DepthColorScheme = darkColorScheme(
-    primary = DepthPrimary,
-    onPrimary = DepthOnPrimary,
-    primaryContainer = DepthPrimaryContainer,
-    onPrimaryContainer = DepthOnPrimaryContainer,
-    secondary = DepthSecondary,
-    onSecondary = DepthOnSecondary,
-    secondaryContainer = DepthSecondaryContainer,
-    onSecondaryContainer = DepthOnSecondaryContainer,
-    background = DepthBackground,
-    onBackground = DepthOnBackground,
-    surface = DepthSurface,
-    onSurface = DepthOnSurface,
-    surfaceVariant = DepthSurfaceVariant,
-    onSurfaceVariant = DepthOnSurfaceVariant,
-    outline = DepthOutline
+private val DarkColorScheme = darkColorScheme(
+    primary = Color(0xFF38BDF8),
+    onPrimary = Color(0xFF082F49),
+    primaryContainer = Color(0xFF0369A1),
+    onPrimaryContainer = Color(0xFFE0F2FE),
+    secondary = Color(0xFF2DD4BF),
+    onSecondary = Color(0xFF042F2E),
+    background = Color(0xFF0F172A),
+    onBackground = Color(0xFFF8FAFC),
+    surface = Color(0xFF1E293B),
+    onSurface = Color(0xFFF8FAFC),
+    surfaceVariant = Color(0xFF334155),
+    onSurfaceVariant = Color(0xFFCBD5E1)
 )
 
-// 3. Схема "Тепло" (Уютная бежевая)
-private val WarmthColorScheme = lightColorScheme(
-    primary = WarmthPrimary,
-    onPrimary = WarmthOnPrimary,
-    primaryContainer = WarmthPrimaryContainer,
-    onPrimaryContainer = WarmthOnPrimaryContainer,
-    secondary = WarmthSecondary,
-    onSecondary = WarmthOnSecondary,
-    secondaryContainer = WarmthSecondaryContainer,
-    onSecondaryContainer = WarmthOnSecondaryContainer,
-    background = WarmthBackground,
-    onBackground = WarmthOnBackground,
-    surface = WarmthSurface,
-    onSurface = WarmthOnSurface,
-    surfaceVariant = WarmthSurfaceVariant,
-    onSurfaceVariant = WarmthOnSurfaceVariant,
-    outline = WarmthOutline
+private val OceanColorScheme = lightColorScheme(
+    primary = Color(0xFF0284C7),
+    onPrimary = Color.White,
+    background = Color(0xFFF0F9FF),
+    surface = Color.White
+)
+
+private val ForestColorScheme = lightColorScheme(
+    primary = Color(0xFF059669),
+    onPrimary = Color.White,
+    background = Color(0xFFF0FDF4),
+    surface = Color.White
 )
 
 @Composable
-fun NoteAppTheme(
-    themePreset: AppThemePreset = AppThemePreset.PURITY,
-    isDarkTheme: Boolean = isSystemInDarkTheme(),
+fun NotesTheme(
+    preset: AppThemePreset = AppThemePreset.PURITY,
+    darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
 ) {
-    val context = LocalContext.current
-
-    val colorScheme: ColorScheme = when (themePreset) {
-        AppThemePreset.PURITY -> PurityColorScheme
-        AppThemePreset.DEPTH -> DepthColorScheme
-        AppThemePreset.WARMTH -> WarmthColorScheme
-        AppThemePreset.SYSTEM -> {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                if (isDarkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-            } else {
-                if (isDarkTheme) DepthColorScheme else PurityColorScheme
-            }
-        }
+    val colorScheme = when (preset) {
+        AppThemePreset.PURITY -> if (darkTheme) DarkColorScheme else LightColorScheme
+        AppThemePreset.DARK_NIGHT -> DarkColorScheme
+        AppThemePreset.OCEAN -> OceanColorScheme
+        AppThemePreset.FOREST -> ForestColorScheme
     }
 
     MaterialTheme(

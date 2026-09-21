@@ -1,196 +1,169 @@
 package com.example.presentation.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Text
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.example.domain.model.DateFilter
-import com.example.domain.model.FilterState
-import com.example.domain.model.NoteSortOrder
-import com.example.ui.theme.NoteTagColors
+import com.example.presentation.screens.notes_list.SortOrder
+import com.example.ui.theme.NoteColors
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FilterBottomSheet(
-    filterState: FilterState,
-    folders: List<String> = emptyList(),
-    onFilterChange: (FilterState) -> Unit,
+    selectedColor: String?,
+    onColorSelected: (String?) -> Unit,
+    selectedTag: String?,
+    onTagSelected: (String?) -> Unit,
+    availableTags: List<String>,
+    selectedFolder: String?,
+    onFolderSelected: (String?) -> Unit,
+    availableFolders: List<String>,
+    sortOrder: SortOrder,
+    onSortOrderSelected: (SortOrder) -> Unit,
+    onClearAllFilters: () -> Unit,
     onDismiss: () -> Unit
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        containerColor = MaterialTheme.colorScheme.surface
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp, vertical = 12.dp)
         ) {
-            Text(
-                text = "Фильтры и сортировка",
-                style = MaterialTheme.typography.headlineMedium,
-                color = MaterialTheme.colorScheme.onSurface
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Сортировка и фильтры",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                )
+                TextButton(onClick = onClearAllFilters) {
+                    Text("Сбросить всё")
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(text = "Порядок сортировки", style = MaterialTheme.typography.labelMedium)
+            Spacer(modifier = Modifier.height(8.dp))
+
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(SortOrder.values()) { order ->
+                    FilterChip(
+                        selected = sortOrder == order,
+                        onClick = { onSortOrderSelected(order) },
+                        label = { Text(order.label) }
+                    )
+                }
+            }
 
             Spacer(modifier = Modifier.height(16.dp))
+            Text(text = "Цвет заметки", style = MaterialTheme.typography.labelMedium)
+            Spacer(modifier = Modifier.height(8.dp))
 
-            // Папки
-            if (folders.isNotEmpty()) {
-                Text(
-                    text = "Папки",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                item {
                     FilterChip(
-                        selected = filterState.selectedFolder == null,
-                        onClick = { onFilterChange(filterState.copy(selectedFolder = null)) },
-                        label = { Text("Все папки") }
+                        selected = selectedColor == null,
+                        onClick = { onColorSelected(null) },
+                        label = { Text("Все") }
                     )
-                    folders.forEach { f ->
+                }
+                items(NoteColors) { hex ->
+                    val color = try { Color(android.graphics.Color.parseColor(hex)) } catch (_: Exception) { Color.LightGray }
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(color)
+                            .clickable { onColorSelected(if (selectedColor == hex) null else hex) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (selectedColor == hex) {
+                            Surface(
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(12.dp)
+                            ) {}
+                        }
+                    }
+                }
+            }
+
+            if (availableFolders.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(text = "Папка", style = MaterialTheme.typography.labelMedium)
+                Spacer(modifier = Modifier.height(8.dp))
+
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    item {
                         FilterChip(
-                            selected = filterState.selectedFolder == f,
-                            onClick = {
-                                val next = if (filterState.selectedFolder == f) null else f
-                                onFilterChange(filterState.copy(selectedFolder = next))
-                            },
-                            label = { Text("📁 $f") }
+                            selected = selectedFolder == null,
+                            onClick = { onFolderSelected(null) },
+                            label = { Text("Все папки") }
+                        )
+                    }
+                    items(availableFolders) { folder ->
+                        FilterChip(
+                            selected = selectedFolder == folder,
+                            onClick = { onFolderSelected(if (selectedFolder == folder) null else folder) },
+                            label = { Text(folder) }
                         )
                     }
                 }
+            }
+
+            if (availableTags.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(16.dp))
-            }
+                Text(text = "Теги", style = MaterialTheme.typography.labelMedium)
+                Spacer(modifier = Modifier.height(8.dp))
 
-            // Сортировка
-            Text(
-                text = "Сортировка",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                NoteSortOrder.entries.forEach { sort ->
-                    FilterChip(
-                        selected = filterState.sortOrder == sort,
-                        onClick = {
-                            onFilterChange(filterState.copy(sortOrder = sort))
-                        },
-                        label = { Text(sort.title) }
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // По дате
-            Text(
-                text = "Период",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                DateFilter.entries.forEach { date ->
-                    FilterChip(
-                        selected = filterState.dateFilter == date,
-                        onClick = {
-                            onFilterChange(filterState.copy(dateFilter = date))
-                        },
-                        label = { Text(date.title) }
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Фильтр по цветам
-            Text(
-                text = "Цветовая метка",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                NoteTagColors.list.forEachIndexed { index, color ->
-                    val isSelected = filterState.selectedColors.contains(index)
-                    Box(
-                        modifier = Modifier
-                            .size(32.dp)
-                            .clip(CircleShape)
-                            .background(color)
-                            .clickable {
-                                val next = if (isSelected) {
-                                    filterState.selectedColors - index
-                                } else {
-                                    filterState.selectedColors + index
-                                }
-                                onFilterChange(filterState.copy(selectedColors = next))
-                            }
-                            .then(
-                                if (isSelected) {
-                                    Modifier.border(3.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
-                                } else Modifier
-                            )
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                OutlinedButton(
-                    onClick = {
-                        onFilterChange(FilterState())
-                    },
-                    modifier = Modifier.weight(1f)
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("Сбросить")
-                }
-
-                Button(
-                    onClick = onDismiss,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("Применить")
+                    item {
+                        FilterChip(
+                            selected = selectedTag == null,
+                            onClick = { onTagSelected(null) },
+                            label = { Text("Все теги") }
+                        )
+                    }
+                    items(availableTags) { tag ->
+                        FilterChip(
+                            selected = selectedTag == tag,
+                            onClick = { onTagSelected(if (selectedTag == tag) null else tag) },
+                            label = { Text("#$tag") }
+                        )
+                    }
                 }
             }
 
+            Spacer(modifier = Modifier.height(20.dp))
+            Button(
+                onClick = onDismiss,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Применить")
+            }
             Spacer(modifier = Modifier.height(16.dp))
         }
     }

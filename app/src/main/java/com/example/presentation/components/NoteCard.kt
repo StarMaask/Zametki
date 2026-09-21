@@ -1,349 +1,196 @@
 package com.example.presentation.components
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Alarm
-import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PushPin
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import androidx.compose.material.icons.outlined.PushPin
+import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.domain.model.Note
-import com.example.ui.theme.NoteDimens
-import com.example.ui.theme.NoteTagColors
 import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import java.util.*
 
-@OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun NoteCard(
     note: Note,
     onClick: () -> Unit,
-    onLongClick: () -> Unit = {},
+    onLongClick: () -> Unit,
+    onPinClick: () -> Unit,
     isSelected: Boolean = false,
     isSelectionMode: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    val stripeColor = if (note.colorIndex in NoteTagColors.list.indices) {
-        NoteTagColors.list[note.colorIndex]
-    } else {
-        MaterialTheme.colorScheme.primary
+    val cardColor = try {
+        Color(android.graphics.Color.parseColor(note.colorHex))
+    } catch (_: Exception) {
+        MaterialTheme.colorScheme.surface
     }
 
-    val cardBorderModifier = if (isSelected) {
-        Modifier.border(2.dp, MaterialTheme.colorScheme.primary, NoteDimens.shapeMedium)
-    } else Modifier
+    val isDark = (cardColor.red * 0.299 + cardColor.green * 0.587 + cardColor.blue * 0.114) < 0.5
+    val contentColor = if (isDark) Color.White else Color(0xFF1E293B)
+    val secondaryColor = if (isDark) Color(0xFFCBD5E1) else Color(0xFF64748B)
 
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .then(cardBorderModifier)
-            .clip(NoteDimens.shapeMedium)
+            .clip(RoundedCornerShape(16.dp))
             .combinedClickable(
-                onClick = {
-                    if (isSelectionMode) {
-                        onLongClick()
-                    } else {
-                        onClick()
-                    }
-                },
+                onClick = onClick,
                 onLongClick = onLongClick
             ),
-        shape = NoteDimens.shapeMedium,
-        colors = CardDefaults.cardColors(
-            containerColor = if (isSelected) {
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
-            } else {
-                MaterialTheme.colorScheme.surface
-            }
-        ),
-        elevation = CardDefaults.cardElevation(
-            defaultElevation = if (isSelected) NoteDimens.elevationMedium else NoteDimens.elevationLow
-        )
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = cardColor),
+        border = if (isSelected) BorderStroke(2.5.dp, MaterialTheme.colorScheme.primary) else null,
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Row(modifier = Modifier.fillMaxWidth()) {
-            // Вертикальная цветовая полоска
-            Box(
-                modifier = Modifier
-                    .width(4.dp)
-                    .height(96.dp)
-                    .background(stripeColor)
-            )
-
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(horizontal = 14.dp, vertical = 12.dp)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                // Заголовок и индикаторы
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    if (isSelectionMode) {
-                        Box(
-                            modifier = Modifier
-                                .size(22.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent
-                                )
-                                .border(
-                                    2.dp,
-                                    if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-                                    CircleShape
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (isSelected) {
-                                Icon(
-                                    Icons.Default.Check,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.width(8.dp))
-                    }
-
+                if (note.title.isNotBlank()) {
                     Text(
-                        text = if (note.title.isNotBlank()) note.title else "Без названия",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
+                        text = note.title,
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = contentColor,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false)
+                        modifier = Modifier.weight(1f)
                     )
-
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (note.isLocked) {
-                            Icon(
-                                imageVector = Icons.Default.Lock,
-                                contentDescription = "Защищено PIN-кодом",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                        if (note.isPinned) {
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Icon(
-                                imageVector = Icons.Default.PushPin,
-                                contentDescription = "Закреплено",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                    }
+                } else {
+                    Spacer(modifier = Modifier.weight(1f))
                 }
 
-                // Папка (если назначена)
-                if (note.folder.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                if (isSelectionMode) {
+                    Checkbox(
+                        checked = isSelected,
+                        onCheckedChange = { onClick() }
+                    )
+                } else {
+                    IconButton(
+                        onClick = onPinClick,
+                        modifier = Modifier.size(28.dp)
                     ) {
                         Icon(
-                            Icons.Default.Folder,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(12.dp)
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Text(
-                            text = note.folder,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            imageVector = if (note.isPinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
+                            contentDescription = if (note.isPinned) "Открепить" else "Закрепить",
+                            tint = if (note.isPinned) MaterialTheme.colorScheme.primary else secondaryColor,
+                            modifier = Modifier.size(18.dp)
                         )
                     }
                 }
+            }
 
-                if (note.isLocked) {
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "🔒 Заметка защищена PIN-кодом",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.outline
-                    )
-                } else if (note.isCheckedItemsList && note.content.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(6.dp))
-                    val previewItems = note.content.lines().filter { it.isNotBlank() }.take(3)
-                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        previewItems.forEach { line ->
-                            val isDone = line.startsWith("[x] ") || line.startsWith("[X] ")
-                            val text = when {
-                                line.startsWith("[x] ") -> line.removePrefix("[x] ")
-                                line.startsWith("[X] ") -> line.removePrefix("[X] ")
-                                line.startsWith("[ ] ") -> line.removePrefix("[ ] ")
-                                else -> line
-                            }
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(12.dp)
-                                        .clip(RoundedCornerShape(3.dp))
-                                        .background(
-                                            if (isDone) MaterialTheme.colorScheme.primary else Color.Transparent
-                                        )
-                                        .then(
-                                            if (!isDone) {
-                                                Modifier.background(MaterialTheme.colorScheme.outline.copy(alpha = 0.4f), RoundedCornerShape(3.dp))
-                                            } else Modifier
-                                        )
-                                )
-                                Text(
-                                    text = text,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = if (isDone) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    textDecoration = if (isDone) androidx.compose.ui.text.style.TextDecoration.LineThrough else null,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-                    }
-                } else if (note.content.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = note.content,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
+            if (note.content.isNotBlank()) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = note.content,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = contentColor,
+                    maxLines = 8,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
 
-                // Теги
-                if (note.tags.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        note.tags.take(3).forEach { tag ->
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                Text(
-                                    text = "#$tag",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Дата и иконки вложений
+            // Tags / Folders / Indicators
+            if (note.tags.isNotEmpty() || !note.folder.isNullOrBlank() || note.reminderTime != null || !note.audioUri.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(10.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    val formattedDate = formatRelativeTime(note.updatedAt)
-                    Text(
-                        text = formattedDate,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.outline
-                    )
-
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        if (note.audioUri != null) {
-                            Icon(
-                                imageVector = Icons.Default.Mic,
-                                contentDescription = "Аудиозапись",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(14.dp)
-                            )
-                        }
-
-                        if (note.imageUris.isNotEmpty()) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (!note.folder.isNullOrBlank()) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 Icon(
-                                    imageVector = Icons.Default.Image,
-                                    contentDescription = "Прикреплены изображения",
-                                    tint = MaterialTheme.colorScheme.outline,
-                                    modifier = Modifier.size(14.dp)
+                                    imageVector = Icons.Filled.Folder,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(12.dp)
                                 )
-                                Spacer(modifier = Modifier.width(3.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
                                 Text(
-                                    text = note.imageUris.size.toString(),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.outline
+                                    text = note.folder,
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Medium
                                 )
                             }
                         }
+                    }
 
-                        if (note.reminderTime != null) {
-                            Icon(
-                                imageVector = Icons.Default.Alarm,
-                                contentDescription = "Напоминание",
-                                tint = MaterialTheme.colorScheme.secondary,
-                                modifier = Modifier.size(14.dp)
+                    if (note.reminderTime != null) {
+                        Icon(
+                            imageVector = Icons.Filled.Notifications,
+                            contentDescription = "Напоминание",
+                            tint = secondaryColor,
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
+
+                    if (!note.audioUri.isNullOrBlank()) {
+                        Icon(
+                            imageVector = Icons.Filled.Mic,
+                            contentDescription = "Аудиозапись",
+                            tint = secondaryColor,
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
+
+                    note.tags.take(2).forEach { tag ->
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = secondaryColor.copy(alpha = 0.15f)
+                        ) {
+                            Text(
+                                text = "#$tag",
+                                fontSize = 10.sp,
+                                color = secondaryColor,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                             )
                         }
                     }
                 }
             }
-        }
-    }
-}
 
-private fun formatRelativeTime(timestamp: Long): String {
-    val now = System.currentTimeMillis()
-    val diff = now - timestamp
-    return when {
-        diff < 60_000L -> "Только что"
-        diff < 3600_000L -> "${diff / 60_000L} мин назад"
-        diff < 86400_000L -> "${diff / 3600_000L} ч назад"
-        diff < 172800_000L -> "Вчера"
-        else -> SimpleDateFormat("dd MMM", Locale("ru")).format(Date(timestamp))
+            Spacer(modifier = Modifier.height(8.dp))
+            val dateStr = SimpleDateFormat("d MMM, HH:mm", Locale.getDefault()).format(Date(note.updatedAt))
+            Text(
+                text = dateStr,
+                fontSize = 10.sp,
+                color = secondaryColor
+            )
+        }
     }
 }
