@@ -17,7 +17,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           java-version: '17'
           distribution: 'temurin'
@@ -27,16 +27,17 @@ jobs:
         with:
           gradle-version: '9.3.1'
 
-      - name: Create debug keystore
+      - name: Setup debug keystore
         run: |
-          keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
-
-      - name: Ensure gradlew wrapper exists
-        run: |
-          if [ ! -f "./gradlew" ]; then
-            gradle wrapper --gradle-version 9.3.1
+          mkdir -p ~/.android
+          if [ -f "debug.keystore.base64" ]; then
+            base64 -d debug.keystore.base64 > ~/.android/debug.keystore
+          else
+            keytool -genkey -v -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
           fi
-          chmod +x gradlew
+
+      - name: Ensure gradlew is executable
+        run: chmod +x gradlew
 
       - name: Build Debug APK
         run: ./gradlew assembleDebug --stacktrace
