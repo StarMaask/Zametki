@@ -19,5 +19,9 @@ data class Note(
     val imageUrisJson: String = "",
     val audioUri: String? = null,
     val folder: String? = null,
-    val isLocked: Boolean = false
-)
+    val isLocked: Boolean = false,
+    val pageFormat: String = PageFormat.BOOK.name
+) {
+    val format: PageFormat
+        get() = try { PageFormat.valueOf(pageFormat) } catch (_: Exception) { PageFormat.BOOK }
+}

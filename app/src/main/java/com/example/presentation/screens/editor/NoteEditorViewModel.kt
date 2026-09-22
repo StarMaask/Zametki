@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.domain.model.CheckListItem
 import com.example.domain.model.Note
 import com.example.domain.model.NoteTemplate
+import com.example.domain.model.PageFormat
 import com.example.domain.repository.NoteRepository
 import com.example.receiver.ReminderScheduler
 import kotlinx.coroutines.flow.*
@@ -34,6 +35,7 @@ data class NoteEditorUiState(
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
     val isSaved: Boolean = false,
+    val pageFormat: PageFormat = PageFormat.BOOK,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 ) {
@@ -72,7 +74,8 @@ data class NoteEditorUiState(
             imageUrisJson = imageUrisJson,
             audioUri = audioUri,
             folder = folder,
-            isLocked = isLocked
+            isLocked = isLocked,
+            pageFormat = pageFormat.name
         )
     }
 }
@@ -134,12 +137,17 @@ class NoteEditorViewModel(
                     folder = note.folder,
                     isLocked = note.isLocked,
                     isChecklistMode = parsedChecklist.isNotEmpty(),
+                    pageFormat = try { PageFormat.valueOf(note.pageFormat) } catch (_: Exception) { PageFormat.BOOK },
                     createdAt = note.createdAt,
                     updatedAt = note.updatedAt
                 )
             }
             lastRecordedText = note.content
         }
+    }
+
+    fun onPageFormatChange(format: PageFormat) {
+        _uiState.update { it.copy(pageFormat = format) }
     }
 
     fun onTitleChange(title: String) { _uiState.update { it.copy(title = title) } }

@@ -37,16 +37,25 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
 import com.example.domain.model.NoteTemplate
+import com.example.domain.model.PageFormat
 import com.example.presentation.components.AudioPlaybackCard
 import com.example.presentation.components.AudioRecordDialog
 import com.example.presentation.components.DrawingCanvasDialog
+import com.example.presentation.components.NotebookPalette
+import com.example.presentation.components.NotebookPaperCanvas
 import com.example.presentation.components.NoteInfoDialog
 import com.example.presentation.components.NoteTemplateDialog
+import com.example.presentation.components.PageFormatSelectorDialog
 import com.example.presentation.components.TooltipIconButton
+import com.example.presentation.components.getFontFamily
+import com.example.presentation.components.getInkColor
+import com.example.presentation.components.getPaperColor
+import com.example.presentation.components.getPlaceholderColor
 import com.example.ui.theme.NoteColors
 import com.example.util.ShareExportUtil
 import java.text.SimpleDateFormat
 import java.util.*
+import androidx.compose.ui.text.font.FontFamily
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -68,6 +77,7 @@ fun NoteEditorScreen(
     var showOrganizeMenu by remember { mutableStateOf(false) }
     var showTopMenu by remember { mutableStateOf(false) }
     var showTemplateDialog by remember { mutableStateOf(false) }
+    var showPageFormatDialog by remember { mutableStateOf(false) }
 
     var newTagInput by remember { mutableStateOf("") }
     var folderInput by remember { mutableStateOf("") }
@@ -91,11 +101,10 @@ fun NoteEditorScreen(
         contract = ActivityResultContracts.RequestPermission()
     ) { _ -> }
 
-    val backgroundColor = try {
-        Color(android.graphics.Color.parseColor(state.colorHex))
-    } catch (_: Exception) {
-        MaterialTheme.colorScheme.background
-    }
+    val paperColor = getPaperColor(state.pageFormat, state.colorHex)
+    val inkColor = getInkColor(state.pageFormat, paperColor)
+    val placeholderColor = getPlaceholderColor(state.pageFormat, paperColor)
+    val pageFontFamily = getFontFamily(state.pageFormat)
 
     Scaffold(
         topBar = {
@@ -118,6 +127,19 @@ fun NoteEditorScreen(
                     )
                 },
                 actions = {
+                    // Page Format Button (Book / Ruled / Grid / Blank)
+                    TooltipIconButton(
+                        onClick = { showPageFormatDialog = true },
+                        icon = when (state.pageFormat) {
+                            PageFormat.BOOK -> Icons.Filled.AutoStories
+                            PageFormat.RULED -> Icons.Filled.FormatAlignJustify
+                            PageFormat.GRID -> Icons.Filled.BorderAll
+                            PageFormat.BLANK -> Icons.Filled.Description
+                        },
+                        tooltip = "Формат: ${state.pageFormat.title} (Книга/Тетрадь)",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+
                     // Pin Button
                     TooltipIconButton(
                         onClick = { viewModel.togglePin() },
@@ -268,18 +290,27 @@ fun NoteEditorScreen(
                         }
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = backgroundColor)
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
+                    actionIconContentColor = MaterialTheme.colorScheme.onSurface
+                )
             )
         },
         bottomBar = {
             Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding(),
                 tonalElevation = 6.dp,
+                shadowElevation = 8.dp,
                 color = MaterialTheme.colorScheme.surface
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
                     horizontalArrangement = Arrangement.SpaceAround,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -431,10 +462,37 @@ fun NoteEditorScreen(
                                     viewModel.appendFormatting("> ")
                                 }
                             )
+                            HorizontalDivider()
+                            DropdownMenuItem(
+                                text = {
+                                    Column {
+                                        Text("Формат листа: ${state.pageFormat.title}")
+                                        Text("Книга, тетрадь в линейку или в клетку", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                },
+                                leadingIcon = { Icon(Icons.Filled.AutoStories, null) },
+                                onClick = {
+                                    showFormatMenu = false
+                                    showPageFormatDialog = true
+                                }
+                            )
                         }
                     }
 
-                    // 3. ПАЛИТРА ЦВЕТОВ (Color Row Toggle)
+                    // 3. ФОРМАТ ЛИСТА (Book / Ruled / Grid / Blank button)
+                    TooltipIconButton(
+                        onClick = { showPageFormatDialog = true },
+                        icon = when (state.pageFormat) {
+                            PageFormat.BOOK -> Icons.Filled.AutoStories
+                            PageFormat.RULED -> Icons.Filled.FormatAlignJustify
+                            PageFormat.GRID -> Icons.Filled.BorderAll
+                            PageFormat.BLANK -> Icons.Filled.Description
+                        },
+                        tooltip = "Формат листа: ${state.pageFormat.title}",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+
+                    // 4. ПАЛИТРА ЦВЕТОВ (Color Row Toggle)
                     TooltipIconButton(
                         onClick = { showColorPicker = !showColorPicker },
                         icon = Icons.Filled.Palette,
@@ -486,7 +544,7 @@ fun NoteEditorScreen(
                 }
             }
         },
-        containerColor = backgroundColor
+        containerColor = MaterialTheme.colorScheme.background
     ) { paddingValues ->
         Column(
             modifier = Modifier
@@ -527,6 +585,44 @@ fun NoteEditorScreen(
                                 }
                             }
                         }
+                    }
+                }
+            }
+
+            // Quick Page Format Selector Tabs (1-tap format switching)
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    PageFormat.values().forEach { format ->
+                        val isSelected = format == state.pageFormat
+                        val chipIcon = when (format) {
+                            PageFormat.BOOK -> Icons.Filled.AutoStories
+                            PageFormat.RULED -> Icons.Filled.FormatAlignJustify
+                            PageFormat.GRID -> Icons.Filled.BorderAll
+                            PageFormat.BLANK -> Icons.Filled.Description
+                        }
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { viewModel.onPageFormatChange(format) },
+                            label = {
+                                Text(
+                                    text = format.title,
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    maxLines = 1
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(chipIcon, null, modifier = Modifier.size(14.dp))
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
                     }
                 }
             }
@@ -604,133 +700,225 @@ fun NoteEditorScreen(
                 Spacer(modifier = Modifier.height(12.dp))
             }
 
-            // Title Field
-            TextField(
-                value = state.title,
-                onValueChange = { viewModel.onTitleChange(it) },
-                placeholder = { Text("Заголовок заметки", fontSize = 22.sp, fontWeight = FontWeight.Bold) },
-                textStyle = MaterialTheme.typography.titleLarge.copy(fontSize = 22.sp, fontWeight = FontWeight.Bold),
-                colors = TextFieldDefaults.colors(
-                    focusedContainerColor = Color.Transparent,
-                    unfocusedContainerColor = Color.Transparent,
-                    focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent
-                ),
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            // Checklist mode or Regular content field
-            if (state.isChecklistMode) {
-                Card(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f))
-                ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            val completedCount = state.checkList.count { it.isChecked }
-                            val totalCount = state.checkList.size
-                            Column {
-                                Text(
-                                    text = "Список дел ($completedCount/$totalCount)",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                                Text(
-                                    text = if (state.sortCompletedToEnd) "Выполненные переносятся вниз" else "Без автосортировки",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                TooltipIconButton(
-                                    onClick = { viewModel.toggleSortCompletedToEnd() },
-                                    icon = Icons.Filled.SwapVert,
-                                    tooltip = if (state.sortCompletedToEnd) "Отключить сортировку завершённых вниз" else "Переносить выполненные в конец",
-                                    tint = if (state.sortCompletedToEnd) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                TextButton(onClick = { viewModel.toggleChecklistMode() }) {
-                                    Text("В текст")
-                                }
-                            }
-                        }
-
-                        state.checkList.forEach { item ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Checkbox(
-                                    checked = item.isChecked,
-                                    onCheckedChange = { viewModel.toggleChecklistItem(item.id) }
-                                )
-                                Text(
-                                    text = item.text,
-                                    modifier = Modifier.weight(1f).padding(start = 6.dp),
-                                    style = if (item.isChecked) {
-                                        MaterialTheme.typography.bodyLarge.copy(
-                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f),
-                                            textDecoration = TextDecoration.LineThrough
-                                        )
-                                    } else {
-                                        MaterialTheme.typography.bodyLarge
-                                    }
-                                )
-                                TooltipIconButton(
-                                    onClick = { viewModel.removeChecklistItem(item.id) },
-                                    icon = Icons.Filled.Close,
-                                    tooltip = "Удалить пункт списка",
-                                    modifier = Modifier.size(32.dp)
-                                )
-                            }
-                        }
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            OutlinedTextField(
-                                value = checkItemInput,
-                                onValueChange = { checkItemInput = it },
-                                placeholder = { Text("Новый пункт списка...") },
-                                singleLine = true,
-                                modifier = Modifier.weight(1f)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Button(
-                                onClick = {
-                                    if (checkItemInput.isNotBlank()) {
-                                        viewModel.addChecklistItem(checkItemInput.trim())
-                                        checkItemInput = ""
-                                    }
-                                }
-                            ) {
-                                Icon(Icons.Filled.Add, contentDescription = "Добавить пункт")
-                            }
-                        }
-                    }
+            // Notebook Paper Sheet (Book / Ruled / Grid / Blank Canvas)
+            NotebookPaperCanvas(
+                format = state.pageFormat,
+                paperColor = paperColor,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .defaultMinSize(minHeight = 480.dp)
+            ) {
+                val innerPaddingStart = when (state.pageFormat) {
+                    PageFormat.BOOK -> 26.dp
+                    PageFormat.RULED, PageFormat.GRID -> 56.dp
+                    PageFormat.BLANK -> 16.dp
                 }
-            } else {
-                TextField(
-                    value = state.content,
-                    onValueChange = { viewModel.onContentChange(it) },
-                    placeholder = { Text("Текст заметки...") },
-                    textStyle = MaterialTheme.typography.bodyLarge,
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = Color.Transparent,
-                        unfocusedContainerColor = Color.Transparent,
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent
-                    ),
+                val innerPaddingEnd = when (state.pageFormat) {
+                    PageFormat.BOOK -> 22.dp
+                    else -> 16.dp
+                }
+
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .defaultMinSize(minHeight = 250.dp)
-                )
+                        .padding(start = innerPaddingStart, end = innerPaddingEnd, top = 20.dp, bottom = 32.dp)
+                ) {
+                    // Book Chapter Header
+                    if (state.pageFormat == PageFormat.BOOK) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            HorizontalDivider(modifier = Modifier.weight(1f), color = inkColor.copy(alpha = 0.2f))
+                            Text(
+                                text = "  СТРАНИЦА КНИГИ  ",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontFamily = FontFamily.Serif,
+                                    letterSpacing = 2.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = inkColor.copy(alpha = 0.6f)
+                                )
+                            )
+                            HorizontalDivider(modifier = Modifier.weight(1f), color = inkColor.copy(alpha = 0.2f))
+                        }
+                    }
+
+                    // Title Field
+                    TextField(
+                        value = state.title,
+                        onValueChange = { viewModel.onTitleChange(it) },
+                        placeholder = {
+                            Text(
+                                text = if (state.pageFormat == PageFormat.BOOK) "Название главы / заметки" else "Заголовок заметки",
+                                fontSize = 22.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = pageFontFamily,
+                                color = placeholderColor
+                            )
+                        },
+                        textStyle = MaterialTheme.typography.titleLarge.copy(
+                            fontSize = if (state.pageFormat == PageFormat.BOOK) 23.sp else 21.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = pageFontFamily,
+                            color = inkColor
+                        ),
+                        colors = TextFieldDefaults.colors(
+                            focusedTextColor = inkColor,
+                            unfocusedTextColor = inkColor,
+                            focusedPlaceholderColor = placeholderColor,
+                            unfocusedPlaceholderColor = placeholderColor,
+                            cursorColor = if (state.pageFormat == PageFormat.BOOK) NotebookPalette.BookBookmark else MaterialTheme.colorScheme.primary,
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent,
+                            focusedIndicatorColor = Color.Transparent,
+                            unfocusedIndicatorColor = Color.Transparent
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    // Checklist mode or Regular content field
+                    if (state.isChecklistMode) {
+                        Card(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            colors = CardDefaults.cardColors(containerColor = paperColor.copy(alpha = 0.85f))
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    val completedCount = state.checkList.count { it.isChecked }
+                                    val totalCount = state.checkList.size
+                                    Column {
+                                        Text(
+                                            text = "Список дел ($completedCount/$totalCount)",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                        Text(
+                                            text = if (state.sortCompletedToEnd) "Выполненные переносятся вниз" else "Без автосортировки",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = placeholderColor
+                                        )
+                                    }
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        TooltipIconButton(
+                                            onClick = { viewModel.toggleSortCompletedToEnd() },
+                                            icon = Icons.Filled.SwapVert,
+                                            tooltip = if (state.sortCompletedToEnd) "Отключить сортировку завершённых вниз" else "Переносить выполненные в конец",
+                                            tint = if (state.sortCompletedToEnd) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        TextButton(onClick = { viewModel.toggleChecklistMode() }) {
+                                            Text("В текст")
+                                        }
+                                    }
+                                }
+
+                                state.checkList.forEach { item ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Checkbox(
+                                            checked = item.isChecked,
+                                            onCheckedChange = { viewModel.toggleChecklistItem(item.id) }
+                                        )
+                                        Text(
+                                            text = item.text,
+                                            modifier = Modifier.weight(1f).padding(start = 6.dp),
+                                            style = if (item.isChecked) {
+                                                MaterialTheme.typography.bodyLarge.copy(
+                                                    color = inkColor.copy(alpha = 0.4f),
+                                                    textDecoration = TextDecoration.LineThrough,
+                                                    fontFamily = pageFontFamily
+                                                )
+                                            } else {
+                                                MaterialTheme.typography.bodyLarge.copy(
+                                                    color = inkColor,
+                                                    fontFamily = pageFontFamily
+                                                )
+                                            }
+                                        )
+                                        TooltipIconButton(
+                                            onClick = { viewModel.removeChecklistItem(item.id) },
+                                            icon = Icons.Filled.Close,
+                                            tooltip = "Удалить пункт списка",
+                                            modifier = Modifier.size(32.dp)
+                                        )
+                                    }
+                                }
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    OutlinedTextField(
+                                        value = checkItemInput,
+                                        onValueChange = { checkItemInput = it },
+                                        placeholder = { Text("Новый пункт списка...", color = placeholderColor) },
+                                        singleLine = true,
+                                        textStyle = MaterialTheme.typography.bodyMedium.copy(color = inkColor),
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedTextColor = inkColor,
+                                            unfocusedTextColor = inkColor,
+                                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                            unfocusedBorderColor = inkColor.copy(alpha = 0.25f)
+                                        ),
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Button(
+                                        onClick = {
+                                            if (checkItemInput.isNotBlank()) {
+                                                viewModel.addChecklistItem(checkItemInput.trim())
+                                                checkItemInput = ""
+                                            }
+                                        }
+                                    ) {
+                                        Icon(Icons.Filled.Add, contentDescription = "Добавить пункт")
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        TextField(
+                            value = state.content,
+                            onValueChange = { viewModel.onContentChange(it) },
+                            placeholder = {
+                                Text(
+                                    text = if (state.pageFormat == PageFormat.BOOK) "Начните писать главу книги или мысли..." else "Текст заметки...",
+                                    fontFamily = pageFontFamily,
+                                    color = placeholderColor,
+                                    fontSize = if (state.pageFormat == PageFormat.BOOK) 17.sp else 16.sp
+                                )
+                            },
+                            textStyle = MaterialTheme.typography.bodyLarge.copy(
+                                fontFamily = pageFontFamily,
+                                fontSize = if (state.pageFormat == PageFormat.BOOK) 17.sp else 16.sp,
+                                lineHeight = if (state.pageFormat == PageFormat.BOOK) 28.sp else 32.sp,
+                                color = inkColor
+                            ),
+                            colors = TextFieldDefaults.colors(
+                                focusedTextColor = inkColor,
+                                unfocusedTextColor = inkColor,
+                                focusedPlaceholderColor = placeholderColor,
+                                unfocusedPlaceholderColor = placeholderColor,
+                                cursorColor = if (state.pageFormat == PageFormat.BOOK) NotebookPalette.BookBookmark else MaterialTheme.colorScheme.primary,
+                                focusedContainerColor = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent,
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .defaultMinSize(minHeight = 350.dp)
+                        )
+                    }
+                }
             }
         }
     }
@@ -868,6 +1056,17 @@ fun NoteEditorScreen(
             onTemplateSelect = { template ->
                 showTemplateDialog = false
                 viewModel.applyTemplate(template)
+            }
+        )
+    }
+
+    if (showPageFormatDialog) {
+        PageFormatSelectorDialog(
+            currentFormat = state.pageFormat,
+            onDismissRequest = { showPageFormatDialog = false },
+            onFormatSelect = { format ->
+                showPageFormatDialog = false
+                viewModel.onPageFormatChange(format)
             }
         )
     }

@@ -22,7 +22,8 @@ data class NoteEntity(
     val imageUrisJson: String,
     val audioUri: String?,
     val folder: String?,
-    val isLocked: Boolean = false
+    val isLocked: Boolean = false,
+    val pageFormat: String = "BOOK"
 ) {
     fun toDomain(): Note {
         return Note(
@@ -41,7 +42,8 @@ data class NoteEntity(
             imageUrisJson = imageUrisJson,
             audioUri = audioUri,
             folder = folder,
-            isLocked = isLocked
+            isLocked = isLocked,
+            pageFormat = pageFormat
         )
     }
 
@@ -63,7 +65,8 @@ data class NoteEntity(
                 imageUrisJson = note.imageUrisJson,
                 audioUri = note.audioUri,
                 folder = note.folder,
-                isLocked = note.isLocked
+                isLocked = note.isLocked,
+                pageFormat = note.pageFormat
             )
         }
     }
