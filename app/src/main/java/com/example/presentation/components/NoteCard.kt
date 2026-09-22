@@ -10,6 +10,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoStories
 import androidx.compose.material.icons.filled.BorderAll
+import androidx.compose.material.icons.filled.CheckBox
+import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Folder
@@ -21,16 +23,20 @@ import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.domain.model.CheckListItem
 import com.example.domain.model.Note
 import com.example.domain.model.PageFormat
+import kotlinx.serialization.json.Json
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -136,6 +142,55 @@ fun NoteCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = secondaryColor
                 )
+            } else if (note.checkListJson.isNotBlank()) {
+                val checklist = remember(note.checkListJson) {
+                    try {
+                        Json.decodeFromString<List<CheckListItem>>(note.checkListJson)
+                    } catch (_: Exception) {
+                        emptyList()
+                    }
+                }
+                if (checklist.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        checklist.take(4).forEach { item ->
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = if (item.isChecked) Icons.Filled.CheckBox else Icons.Filled.CheckBoxOutlineBlank,
+                                    contentDescription = null,
+                                    tint = if (item.isChecked) secondaryColor.copy(alpha = 0.5f) else secondaryColor,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = item.text,
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        color = if (item.isChecked) secondaryColor.copy(alpha = 0.5f) else contentColor,
+                                        textDecoration = if (item.isChecked) TextDecoration.LineThrough else TextDecoration.None
+                                    ),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                        if (checklist.size > 4) {
+                            Text(
+                                text = "+ ещё ${checklist.size - 4} п.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = secondaryColor
+                            )
+                        }
+                    }
+                } else if (note.content.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = note.content,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = contentColor,
+                        maxLines = 8,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             } else if (note.content.isNotBlank()) {
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(

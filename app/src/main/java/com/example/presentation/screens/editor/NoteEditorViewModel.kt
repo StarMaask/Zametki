@@ -271,10 +271,33 @@ class NoteEditorViewModel(
         }
     }
 
-    fun addChecklistItem(text: String) {
-        if (text.isNotBlank()) {
-            val item = CheckListItem(id = System.currentTimeMillis().toString(), text = text)
-            _uiState.update { it.copy(checkList = it.checkList + item) }
+    fun addChecklistItem(text: String = "", insertAfterId: String? = null): String {
+        val newId = System.currentTimeMillis().toString() + "_" + (0..999).random()
+        val item = CheckListItem(id = newId, text = text, isChecked = false)
+        _uiState.update { current ->
+            val list = current.checkList.toMutableList()
+            if (insertAfterId != null) {
+                val index = list.indexOfFirst { it.id == insertAfterId }
+                if (index != -1 && index + 1 <= list.size) {
+                    list.add(index + 1, item)
+                } else {
+                    list.add(item)
+                }
+            } else {
+                list.add(item)
+            }
+            current.copy(checkList = list, isChecklistMode = true)
+        }
+        return newId
+    }
+
+    fun updateChecklistItem(id: String, newText: String) {
+        _uiState.update { current ->
+            current.copy(
+                checkList = current.checkList.map {
+                    if (it.id == id) it.copy(text = newText) else it
+                }
+            )
         }
     }
 
@@ -333,58 +356,81 @@ class NoteEditorViewModel(
 
     fun saveNote(context: Context? = null, onSaved: (Long) -> Unit = {}) {
         viewModelScope.launch {
-            val state = _uiState.value
-            if (state.title.isBlank() && state.content.isBlank() && state.checkList.isEmpty() && state.imageUris.isEmpty() && state.audioUri == null) {
-                return@launch
-            }
-
-            val checklistJson = if (state.checkList.isNotEmpty()) Json.encodeToString(state.checkList) else ""
-            val imageUrisJson = if (state.imageUris.isNotEmpty()) Json.encodeToString(state.imageUris) else ""
-
-            val note = Note(
-                id = state.noteId,
-                title = state.title,
-                content = state.content,
-                colorHex = state.colorHex,
-                isPinned = state.isPinned,
-                isArchived = state.isArchived,
-                isDeleted = false,
-                updatedAt = System.currentTimeMillis(),
-                reminderTime = state.reminderTime,
-                tags = state.tags,
-                checkListJson = checklistJson,
-                imageUrisJson = imageUrisJson,
-                audioUri = state.audioUri,
-                folder = state.folder,
-                isLocked = state.isLocked
-            )
-
-            val savedId = if (state.noteId > 0) {
-                repository.updateNote(note)
-                state.noteId
-            } else {
-                repository.insertNote(note)
-            }
-
-            // Sync with system AlarmManager
-            if (context != null) {
-                val reminderTime = state.reminderTime
-                if (reminderTime != null && reminderTime > System.currentTimeMillis()) {
-                    ReminderScheduler.scheduleReminder(
-                        context = context,
-                        noteId = savedId,
-                        title = state.title,
-                        content = state.content,
-                        triggerAtMillis = reminderTime
-                    )
-                } else if (reminderTime == null) {
-                    ReminderScheduler.cancelReminder(context, savedId)
+            try {
+                val state = _uiState.value
+                if (state.title.isBlank() && state.content.isBlank() && state.checkList.isEmpty() && state.imageUris.isEmpty() && state.audioUri == null) {
+                    return@launch
                 }
-                com.example.widget.NotesAppWidgetProvider.notifyDataChanged(context)
-            }
 
-            _uiState.update { it.copy(noteId = savedId, isSaved = true) }
-            onSaved(savedId)
+                val checklistJson = if (state.checkList.isNotEmpty()) {
+                    try {
+                        Json.encodeToString(state.checkList)
+                    } catch (_: Exception) { "" }
+                } else ""
+
+                val imageUrisJson = if (state.imageUris.isNotEmpty()) {
+                    try {
+                        Json.encodeToString(state.imageUris)
+                    } catch (_: Exception) { "" }
+                } else ""
+
+                val note = Note(
+                    id = state.noteId,
+                    title = state.title,
+                    content = state.content,
+                    colorHex = state.colorHex,
+                    isPinned = state.isPinned,
+                    isArchived = state.isArchived,
+                    isDeleted = false,
+                    createdAt = if (state.createdAt > 0L) state.createdAt else System.currentTimeMillis(),
+                    updatedAt = System.currentTimeMillis(),
+                    reminderTime = state.reminderTime,
+                    tags = state.tags,
+                    checkListJson = checklistJson,
+                    imageUrisJson = imageUrisJson,
+                    audioUri = state.audioUri,
+                    folder = state.folder,
+                    isLocked = state.isLocked,
+                    pageFormat = state.pageFormat.name
+                )
+
+                val savedId = if (state.noteId > 0) {
+                    repository.updateNote(note)
+                    state.noteId
+                } else {
+                    repository.insertNote(note)
+                }
+
+                // Sync with system AlarmManager & Widget safely
+                if (context != null) {
+                    try {
+                        val reminderTime = state.reminderTime
+                        if (reminderTime != null && reminderTime > System.currentTimeMillis()) {
+                            ReminderScheduler.scheduleReminder(
+                                context = context,
+                                noteId = savedId,
+                                title = state.title,
+                                content = state.content,
+                                triggerAtMillis = reminderTime
+                            )
+                        } else if (reminderTime == null) {
+                            ReminderScheduler.cancelReminder(context, savedId)
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                    try {
+                        com.example.widget.NotesAppWidgetProvider.notifyDataChanged(context)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+
+                _uiState.update { it.copy(noteId = savedId, isSaved = true) }
+                onSaved(savedId)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
     }
 

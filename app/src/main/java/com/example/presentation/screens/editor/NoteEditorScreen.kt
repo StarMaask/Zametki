@@ -7,6 +7,8 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -17,6 +19,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -29,8 +34,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -106,6 +114,11 @@ fun NoteEditorScreen(
     val placeholderColor = getPlaceholderColor(state.pageFormat, paperColor)
     val pageFontFamily = getFontFamily(state.pageFormat)
 
+    BackHandler {
+        viewModel.saveNote(context)
+        onBack()
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -127,6 +140,17 @@ fun NoteEditorScreen(
                     )
                 },
                 actions = {
+                    // Save Button
+                    TooltipIconButton(
+                        onClick = {
+                            viewModel.saveNote(context)
+                            Toast.makeText(context, "Заметка сохранена", Toast.LENGTH_SHORT).show()
+                        },
+                        icon = Icons.Filled.Done,
+                        tooltip = "Сохранить заметку",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+
                     // Page Format Button (Book / Ruled / Grid / Blank)
                     TooltipIconButton(
                         onClick = { showPageFormatDialog = true },
@@ -820,19 +844,30 @@ fun NoteEditorScreen(
 
                                 state.checkList.forEach { item ->
                                     Row(
-                                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 2.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Checkbox(
                                             checked = item.isChecked,
-                                            onCheckedChange = { viewModel.toggleChecklistItem(item.id) }
+                                            onCheckedChange = { viewModel.toggleChecklistItem(item.id) },
+                                            colors = CheckboxDefaults.colors(
+                                                checkedColor = MaterialTheme.colorScheme.primary,
+                                                uncheckedColor = inkColor.copy(alpha = 0.6f)
+                                            )
                                         )
-                                        Text(
-                                            text = item.text,
-                                            modifier = Modifier.weight(1f).padding(start = 6.dp),
-                                            style = if (item.isChecked) {
+                                        BasicTextField(
+                                            value = item.text,
+                                            onValueChange = { newText ->
+                                                viewModel.updateChecklistItem(item.id, newText)
+                                            },
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .padding(horizontal = 6.dp, vertical = 6.dp),
+                                            textStyle = if (item.isChecked) {
                                                 MaterialTheme.typography.bodyLarge.copy(
-                                                    color = inkColor.copy(alpha = 0.4f),
+                                                    color = inkColor.copy(alpha = 0.45f),
                                                     textDecoration = TextDecoration.LineThrough,
                                                     fontFamily = pageFontFamily
                                                 )
@@ -841,19 +876,48 @@ fun NoteEditorScreen(
                                                     color = inkColor,
                                                     fontFamily = pageFontFamily
                                                 )
+                                            },
+                                            cursorBrush = SolidColor(if (state.pageFormat == PageFormat.BOOK) NotebookPalette.BookBookmark else MaterialTheme.colorScheme.primary),
+                                            keyboardOptions = KeyboardOptions(
+                                                capitalization = KeyboardCapitalization.Sentences,
+                                                imeAction = ImeAction.Next
+                                            ),
+                                            keyboardActions = KeyboardActions(
+                                                onNext = {
+                                                    viewModel.addChecklistItem("", insertAfterId = item.id)
+                                                }
+                                            ),
+                                            decorationBox = { innerTextField ->
+                                                if (item.text.isEmpty()) {
+                                                    Text(
+                                                        text = "Пункт списка...",
+                                                        style = MaterialTheme.typography.bodyLarge.copy(
+                                                            color = placeholderColor,
+                                                            fontFamily = pageFontFamily
+                                                        )
+                                                    )
+                                                }
+                                                innerTextField()
                                             }
                                         )
-                                        TooltipIconButton(
+                                        IconButton(
                                             onClick = { viewModel.removeChecklistItem(item.id) },
-                                            icon = Icons.Filled.Close,
-                                            tooltip = "Удалить пункт списка",
-                                            modifier = Modifier.size(32.dp)
-                                        )
+                                            modifier = Modifier.size(40.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Filled.Close,
+                                                contentDescription = "Удалить пункт",
+                                                tint = inkColor.copy(alpha = 0.55f),
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
                                     }
                                 }
 
                                 Row(
-                                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 8.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     OutlinedTextField(
@@ -862,6 +926,18 @@ fun NoteEditorScreen(
                                         placeholder = { Text("Новый пункт списка...", color = placeholderColor) },
                                         singleLine = true,
                                         textStyle = MaterialTheme.typography.bodyMedium.copy(color = inkColor),
+                                        keyboardOptions = KeyboardOptions(
+                                            capitalization = KeyboardCapitalization.Sentences,
+                                            imeAction = ImeAction.Done
+                                        ),
+                                        keyboardActions = KeyboardActions(
+                                            onDone = {
+                                                if (checkItemInput.isNotBlank()) {
+                                                    viewModel.addChecklistItem(checkItemInput.trim())
+                                                    checkItemInput = ""
+                                                }
+                                            }
+                                        ),
                                         colors = OutlinedTextFieldDefaults.colors(
                                             focusedTextColor = inkColor,
                                             unfocusedTextColor = inkColor,
