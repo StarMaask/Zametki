@@ -31,14 +31,17 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
+import com.example.domain.model.NoteTemplate
 import com.example.presentation.components.AudioPlaybackCard
 import com.example.presentation.components.AudioRecordDialog
 import com.example.presentation.components.DrawingCanvasDialog
 import com.example.presentation.components.NoteInfoDialog
+import com.example.presentation.components.NoteTemplateDialog
 import com.example.presentation.components.TooltipIconButton
 import com.example.ui.theme.NoteColors
 import com.example.util.ShareExportUtil
@@ -64,6 +67,7 @@ fun NoteEditorScreen(
     var showFormatMenu by remember { mutableStateOf(false) }
     var showOrganizeMenu by remember { mutableStateOf(false) }
     var showTopMenu by remember { mutableStateOf(false) }
+    var showTemplateDialog by remember { mutableStateOf(false) }
 
     var newTagInput by remember { mutableStateOf("") }
     var folderInput by remember { mutableStateOf("") }
@@ -180,6 +184,19 @@ fun NoteEditorScreen(
                                 onClick = {
                                     showTopMenu = false
                                     ShareExportUtil.shareAsText(context, state.toDomainNote())
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = {
+                                    Column {
+                                        Text("Применить шаблон")
+                                        Text("Заполнить структуру (план, покупки, встреча)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                },
+                                leadingIcon = { Icon(Icons.Filled.AutoAwesome, null) },
+                                onClick = {
+                                    showTopMenu = false
+                                    showTemplateDialog = true
                                 }
                             )
                             DropdownMenuItem(
@@ -616,13 +633,30 @@ fun NoteEditorScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = "Список дел",
-                                style = MaterialTheme.typography.titleSmall,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            TextButton(onClick = { viewModel.toggleChecklistMode() }) {
-                                Text("В обычный текст")
+                            val completedCount = state.checkList.count { it.isChecked }
+                            val totalCount = state.checkList.size
+                            Column {
+                                Text(
+                                    text = "Список дел ($completedCount/$totalCount)",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    text = if (state.sortCompletedToEnd) "Выполненные переносятся вниз" else "Без автосортировки",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                TooltipIconButton(
+                                    onClick = { viewModel.toggleSortCompletedToEnd() },
+                                    icon = Icons.Filled.SwapVert,
+                                    tooltip = if (state.sortCompletedToEnd) "Отключить сортировку завершённых вниз" else "Переносить выполненные в конец",
+                                    tint = if (state.sortCompletedToEnd) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                TextButton(onClick = { viewModel.toggleChecklistMode() }) {
+                                    Text("В текст")
+                                }
                             }
                         }
 
@@ -638,7 +672,14 @@ fun NoteEditorScreen(
                                 Text(
                                     text = item.text,
                                     modifier = Modifier.weight(1f).padding(start = 6.dp),
-                                    style = if (item.isChecked) MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)) else MaterialTheme.typography.bodyLarge
+                                    style = if (item.isChecked) {
+                                        MaterialTheme.typography.bodyLarge.copy(
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f),
+                                            textDecoration = TextDecoration.LineThrough
+                                        )
+                                    } else {
+                                        MaterialTheme.typography.bodyLarge
+                                    }
                                 )
                                 TooltipIconButton(
                                     onClick = { viewModel.removeChecklistItem(item.id) },
@@ -817,6 +858,16 @@ fun NoteEditorScreen(
             onSaveDrawing = { path ->
                 viewModel.addImage(path)
                 showDrawingDialog = false
+            }
+        )
+    }
+
+    if (showTemplateDialog) {
+        NoteTemplateDialog(
+            onDismissRequest = { showTemplateDialog = false },
+            onTemplateSelect = { template ->
+                showTemplateDialog = false
+                viewModel.applyTemplate(template)
             }
         )
     }

@@ -9,6 +9,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FileUpload
+import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Password
 import androidx.compose.material3.*
@@ -24,6 +25,7 @@ import com.example.domain.model.Note
 import com.example.domain.repository.NoteRepository
 import com.example.presentation.components.TooltipIconButton
 import com.example.ui.theme.AppThemePreset
+import com.example.util.BiometricAuthUtil
 import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -42,6 +44,8 @@ fun SettingsScreen(
     val currentTheme by preferencesManager.themeFlow.collectAsState(initial = AppThemePreset.PURITY)
     val currentFontSize by preferencesManager.fontSizeFlow.collectAsState(initial = FontSizeScale.NORMAL)
     val isPinEnabled by preferencesManager.isPinEnabledFlow.collectAsState(initial = false)
+    val isBiometricEnabled by preferencesManager.isBiometricEnabledFlow.collectAsState(initial = false)
+    val isBiometricAvailable = remember { BiometricAuthUtil.isBiometricAvailable(context) }
 
     var showPinDialog by remember { mutableStateOf(false) }
     var pinInput by remember { mutableStateOf("") }
@@ -189,6 +193,43 @@ fun SettingsScreen(
                     Icon(Icons.Filled.Password, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Сменить PIN-код")
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.Fingerprint, contentDescription = null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Вход по биометрии", style = MaterialTheme.typography.bodyLarge)
+                        }
+                        Text(
+                            text = if (!isBiometricAvailable) "Биометрия не настроена на устройстве"
+                            else if (isBiometricEnabled) "Отпечаток пальца / Face Unlock активен"
+                            else "Быстрая разблокировка отпечатком",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = isBiometricEnabled && isBiometricAvailable,
+                        enabled = isBiometricAvailable,
+                        onCheckedChange = { enabled ->
+                            scope.launch {
+                                preferencesManager.setBiometricEnabled(enabled)
+                                snackbarHostState.showSnackbar(
+                                    if (enabled) "Вход по биометрии включен" else "Вход по биометрии выключен"
+                                )
+                            }
+                        }
+                    )
                 }
             }
 

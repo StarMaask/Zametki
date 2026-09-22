@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.domain.model.CheckListItem
 import com.example.domain.model.Note
+import com.example.domain.model.NoteTemplate
 import com.example.domain.repository.NoteRepository
 import com.example.receiver.ReminderScheduler
 import kotlinx.coroutines.flow.*
@@ -28,6 +29,7 @@ data class NoteEditorUiState(
     val folder: String? = null,
     val availableFolders: List<String> = emptyList(),
     val isChecklistMode: Boolean = false,
+    val sortCompletedToEnd: Boolean = true,
     val isMarkdownPreview: Boolean = false,
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
@@ -77,7 +79,8 @@ data class NoteEditorUiState(
 
 class NoteEditorViewModel(
     private val repository: NoteRepository,
-    private val initialNoteId: Long
+    private val initialNoteId: Long,
+    initialTemplate: NoteTemplate? = null
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(NoteEditorUiState(noteId = initialNoteId))
@@ -91,6 +94,8 @@ class NoteEditorViewModel(
         loadFolders()
         if (initialNoteId > 0) {
             loadNote(initialNoteId)
+        } else if (initialTemplate != null) {
+            applyTemplate(initialTemplate)
         }
     }
 
@@ -265,12 +270,50 @@ class NoteEditorViewModel(
         }
     }
 
+    fun applyTemplate(template: NoteTemplate) {
+        if (template == NoteTemplate.BLANK) return
+        val items = template.checklistItems.mapIndexed { index, text ->
+            CheckListItem(id = "${System.currentTimeMillis()}_$index", text = text, isChecked = false)
+        }
+        _uiState.update { current ->
+            current.copy(
+                title = if (current.title.isBlank()) template.defaultTitle else current.title,
+                colorHex = template.colorHex,
+                folder = template.defaultFolder ?: current.folder,
+                tags = (current.tags + template.defaultTags).distinct(),
+                checkList = items,
+                isChecklistMode = items.isNotEmpty()
+            )
+        }
+    }
+
+    fun toggleSortCompletedToEnd() {
+        _uiState.update { current ->
+            val next = !current.sortCompletedToEnd
+            val sortedList = if (next) {
+                current.checkList.sortedBy { it.isChecked }
+            } else current.checkList
+            current.copy(sortCompletedToEnd = next, checkList = sortedList)
+        }
+    }
+
+    fun sortChecklistCompletedItems() {
+        _uiState.update { current ->
+            current.copy(checkList = current.checkList.sortedBy { it.isChecked })
+        }
+    }
+
     fun toggleChecklistItem(id: String) {
         _uiState.update { current ->
             val updated = current.checkList.map {
                 if (it.id == id) it.copy(isChecked = !it.isChecked) else it
             }
-            current.copy(checkList = updated)
+            val finalChecklist = if (current.sortCompletedToEnd) {
+                updated.sortedBy { it.isChecked }
+            } else {
+                updated
+            }
+            current.copy(checkList = finalChecklist)
         }
     }
 

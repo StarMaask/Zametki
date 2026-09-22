@@ -25,6 +25,7 @@ class UserPreferencesManager(private val context: Context) {
     private val KEY_FONT_SIZE = stringPreferencesKey("font_size")
     private val KEY_PIN_CODE = stringPreferencesKey("pin_code")
     private val KEY_PIN_ENABLED = booleanPreferencesKey("pin_enabled")
+    private val KEY_BIOMETRIC_ENABLED = booleanPreferencesKey("biometric_enabled")
 
     val fontSizeFlow: Flow<FontSizeScale> = context.dataStore.data.map { prefs ->
         val name = prefs[KEY_FONT_SIZE] ?: FontSizeScale.NORMAL.name
@@ -41,6 +42,10 @@ class UserPreferencesManager(private val context: Context) {
 
     val isPinEnabledFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
         prefs[KEY_PIN_ENABLED] ?: false
+    }
+
+    val isBiometricEnabledFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[KEY_BIOMETRIC_ENABLED] ?: false
     }
 
     val themeFlow: Flow<AppThemePreset> = context.dataStore.data.map { prefs ->
@@ -73,6 +78,12 @@ class UserPreferencesManager(private val context: Context) {
     suspend fun setPinEnabled(enabled: Boolean) {
         context.dataStore.edit { prefs ->
             prefs[KEY_PIN_ENABLED] = enabled
+        }
+    }
+
+    suspend fun setBiometricEnabled(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_BIOMETRIC_ENABLED] = enabled
         }
     }
 }

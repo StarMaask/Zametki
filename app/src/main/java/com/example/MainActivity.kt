@@ -1,10 +1,11 @@
 package com.example
 
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -12,6 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
+import androidx.fragment.app.FragmentActivity
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -21,6 +23,7 @@ import com.example.data.local.NoteDatabase
 import com.example.data.preferences.FontSizeScale
 import com.example.data.preferences.UserPreferencesManager
 import com.example.data.repository.NoteRepositoryImpl
+import com.example.domain.model.NoteTemplate
 import com.example.presentation.navigation.Screen
 import com.example.presentation.screens.archive.ArchiveScreen
 import com.example.presentation.screens.editor.NoteEditorScreen
@@ -32,8 +35,9 @@ import com.example.presentation.screens.settings.SettingsScreen
 import com.example.presentation.screens.trash.TrashScreen
 import com.example.ui.theme.AppThemePreset
 import com.example.ui.theme.NotesTheme
+import com.example.util.BiometricAuthUtil
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -48,13 +52,27 @@ class MainActivity : ComponentActivity() {
             val fontSizeScale by preferencesManager.fontSizeFlow.collectAsState(initial = FontSizeScale.NORMAL)
             val isPinEnabled by preferencesManager.isPinEnabledFlow.collectAsState(initial = false)
             val savedPinCode by preferencesManager.pinCodeFlow.collectAsState(initial = "0000")
+            val isBiometricEnabled by preferencesManager.isBiometricEnabledFlow.collectAsState(initial = false)
 
             var isUnlocked by remember { mutableStateOf(!isPinEnabled) }
             var pinInput by remember { mutableStateOf("") }
+            val activity = this@MainActivity
 
             LaunchedEffect(isPinEnabled) {
                 if (!isPinEnabled) {
                     isUnlocked = true
+                }
+            }
+
+            LaunchedEffect(isPinEnabled, isBiometricEnabled, isUnlocked) {
+                if (isPinEnabled && !isUnlocked && isBiometricEnabled && BiometricAuthUtil.isBiometricAvailable(activity)) {
+                    BiometricAuthUtil.showBiometricPrompt(
+                        activity = activity,
+                        title = "Вход в заметки",
+                        subtitle = "Приложите палец для разблокировки",
+                        negativeButtonText = "Ввести PIN",
+                        onSuccess = { isUnlocked = true }
+                    )
                 }
             }
 
@@ -95,6 +113,25 @@ class MainActivity : ComponentActivity() {
                                     placeholder = { Text("4 цифры") },
                                     singleLine = true
                                 )
+
+                                if (isBiometricEnabled && BiometricAuthUtil.isBiometricAvailable(activity)) {
+                                    Spacer(modifier = Modifier.height(20.dp))
+                                    FilledTonalButton(
+                                        onClick = {
+                                            BiometricAuthUtil.showBiometricPrompt(
+                                                activity = activity,
+                                                title = "Вход в заметки",
+                                                subtitle = "Приложите палец для разблокировки",
+                                                negativeButtonText = "Ввести PIN",
+                                                onSuccess = { isUnlocked = true }
+                                            )
+                                        }
+                                    ) {
+                                        Icon(Icons.Filled.Fingerprint, contentDescription = null)
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Войти по отпечатку")
+                                    }
+                                }
                             }
                         }
                     } else {
@@ -125,6 +162,9 @@ class MainActivity : ComponentActivity() {
                                     onNoteClick = { noteId ->
                                         navController.navigate(Screen.NoteEditor.createRoute(noteId))
                                     },
+                                    onNewNoteWithTemplate = { template ->
+                                        navController.navigate(Screen.NoteEditor.createRoute(0L, template?.name))
+                                    },
                                     onSearchClick = { navController.navigate(Screen.Search.route) },
                                     onSettingsClick = { navController.navigate(Screen.Settings.route) },
                                     onArchiveClick = { navController.navigate(Screen.Archive.route) },
@@ -134,10 +174,23 @@ class MainActivity : ComponentActivity() {
 
                             composable(
                                 route = Screen.NoteEditor.route,
-                                arguments = listOf(navArgument("noteId") { type = NavType.LongType })
+                                arguments = listOf(
+                                    navArgument("noteId") { type = NavType.LongType },
+                                    navArgument("template") {
+                                        type = NavType.StringType
+                                        nullable = true
+                                        defaultValue = null
+                                    }
+                                )
                             ) { backStackEntry ->
                                 val noteId = backStackEntry.arguments?.getLong("noteId") ?: 0L
-                                val viewModel = remember(noteId) { NoteEditorViewModel(repository, noteId) }
+                                val templateName = backStackEntry.arguments?.getString("template")
+                                val initialTemplate = templateName?.let {
+                                    try { NoteTemplate.valueOf(it) } catch (_: Exception) { null }
+                                }
+                                val viewModel = remember(noteId, templateName) {
+                                    NoteEditorViewModel(repository, noteId, initialTemplate)
+                                }
                                 NoteEditorScreen(
                                     viewModel = viewModel,
                                     onBack = { navController.popBackStack() }

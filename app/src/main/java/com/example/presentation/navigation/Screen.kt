@@ -2,8 +2,14 @@ package com.example.presentation.navigation
 
 sealed class Screen(val route: String) {
     object NotesList : Screen("notes_list")
-    object NoteEditor : Screen("note_editor/{noteId}") {
-        fun createRoute(noteId: Long): String = "note_editor/$noteId"
+    object NoteEditor : Screen("note_editor/{noteId}?template={template}") {
+        fun createRoute(noteId: Long, templateName: String? = null): String {
+            return if (templateName != null) {
+                "note_editor/$noteId?template=$templateName"
+            } else {
+                "note_editor/$noteId"
+            }
+        }
     }
     object Search : Screen("search")
     object Archive : Screen("archive")

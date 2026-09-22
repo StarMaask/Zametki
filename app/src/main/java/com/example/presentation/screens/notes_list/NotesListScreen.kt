@@ -23,9 +23,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.domain.model.Note
+import com.example.domain.model.NoteTemplate
 import com.example.presentation.components.FilterBottomSheet
 import com.example.presentation.components.HelpDialog
 import com.example.presentation.components.NoteCard
+import com.example.presentation.components.NoteTemplateDialog
 import com.example.presentation.components.TooltipIconButton
 import com.example.ui.theme.NoteColors
 
@@ -34,6 +36,7 @@ import com.example.ui.theme.NoteColors
 fun NotesListScreen(
     viewModel: NotesListViewModel,
     onNoteClick: (Long) -> Unit,
+    onNewNoteWithTemplate: ((NoteTemplate?) -> Unit)? = null,
     onSearchClick: () -> Unit,
     onSettingsClick: () -> Unit,
     onArchiveClick: () -> Unit,
@@ -45,6 +48,7 @@ fun NotesListScreen(
     var newFolderName by remember { mutableStateOf("") }
     var showColorDialog by remember { mutableStateOf(false) }
     var showHelpDialog by remember { mutableStateOf(false) }
+    var showTemplateDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -205,12 +209,31 @@ fun NotesListScreen(
             }
         },
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = { onNoteClick(0L) },
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Icon(imageVector = Icons.Filled.Add, contentDescription = "Создать новую заметку")
+                SmallFloatingActionButton(
+                    onClick = { showTemplateDialog = true },
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                ) {
+                    Icon(imageVector = Icons.Filled.AutoAwesome, contentDescription = "Создать по шаблону")
+                }
+
+                FloatingActionButton(
+                    onClick = {
+                        if (onNewNoteWithTemplate != null) {
+                            onNewNoteWithTemplate(null)
+                        } else {
+                            onNoteClick(0L)
+                        }
+                    },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                ) {
+                    Icon(imageVector = Icons.Filled.Add, contentDescription = "Создать новую заметку")
+                }
             }
         }
     ) { paddingValues ->
@@ -472,6 +495,20 @@ fun NotesListScreen(
             confirmButton = {},
             dismissButton = {
                 TextButton(onClick = { showColorDialog = false }) { Text("Закрыть") }
+            }
+        )
+    }
+
+    if (showTemplateDialog) {
+        NoteTemplateDialog(
+            onDismissRequest = { showTemplateDialog = false },
+            onTemplateSelect = { template ->
+                showTemplateDialog = false
+                if (onNewNoteWithTemplate != null) {
+                    onNewNoteWithTemplate(template)
+                } else {
+                    onNoteClick(0L)
+                }
             }
         )
     }
