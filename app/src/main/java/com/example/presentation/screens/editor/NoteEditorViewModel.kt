@@ -6,11 +6,15 @@ import androidx.lifecycle.viewModelScope
 import com.example.domain.model.CheckListItem
 import com.example.domain.model.Note
 import com.example.domain.model.NoteTemplate
+import com.example.domain.model.NoteTemplateManager
 import com.example.domain.model.PageFormat
 import com.example.domain.repository.NoteRepository
 import com.example.receiver.ReminderScheduler
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
@@ -301,17 +305,29 @@ class NoteEditorViewModel(
         }
     }
 
-    fun applyTemplate(template: NoteTemplate) {
-        if (template == NoteTemplate.BLANK) return
-        val items = template.checklistItems.mapIndexed { index, text ->
-            CheckListItem(id = "${System.currentTimeMillis()}_$index", text = text, isChecked = false)
+    fun applyTemplate(
+        template: NoteTemplate,
+        customTitle: String? = null,
+        customItems: List<String>? = null
+    ) {
+        if (template == NoteTemplate.BLANK && customItems.isNullOrEmpty()) return
+        val templateData = NoteTemplateManager.getTemplate(template)
+        val itemsSource = customItems ?: templateData.checklistItems
+        val titleSource = customTitle ?: templateData.noteTitle
+
+        val items = itemsSource.mapIndexed { index, text ->
+            CheckListItem(
+                id = "${System.currentTimeMillis()}_${index}_${(100..999).random()}",
+                text = text,
+                isChecked = false
+            )
         }
         _uiState.update { current ->
             current.copy(
-                title = if (current.title.isBlank()) template.defaultTitle else current.title,
-                colorHex = template.colorHex,
-                folder = template.defaultFolder ?: current.folder,
-                tags = (current.tags + template.defaultTags).distinct(),
+                title = if (current.title.isBlank()) titleSource else current.title,
+                colorHex = templateData.colorHex,
+                folder = templateData.folder ?: current.folder,
+                tags = (current.tags + templateData.tags).distinct(),
                 checkList = items,
                 isChecklistMode = items.isNotEmpty()
             )
@@ -354,11 +370,37 @@ class NoteEditorViewModel(
         }
     }
 
+    fun clearCompletedItems() {
+        _uiState.update { current ->
+            current.copy(checkList = current.checkList.filter { !it.isChecked })
+        }
+    }
+
+    fun clearAllChecklistItems() {
+        _uiState.update { current ->
+            current.copy(checkList = emptyList())
+        }
+    }
+
+    fun moveChecklistItem(fromIndex: Int, toIndex: Int) {
+        _uiState.update { current ->
+            val list = current.checkList.toMutableList()
+            if (fromIndex in list.indices && toIndex in list.indices) {
+                val item = list.removeAt(fromIndex)
+                list.add(toIndex, item)
+                current.copy(checkList = list)
+            } else current
+        }
+    }
+
     fun saveNote(context: Context? = null, onSaved: (Long) -> Unit = {}) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO + NonCancellable) {
             try {
                 val state = _uiState.value
                 if (state.title.isBlank() && state.content.isBlank() && state.checkList.isEmpty() && state.imageUris.isEmpty() && state.audioUri == null) {
+                    withContext(Dispatchers.Main) {
+                        onSaved(0L)
+                    }
                     return@launch
                 }
 
@@ -398,7 +440,9 @@ class NoteEditorViewModel(
                     repository.updateNote(note)
                     state.noteId
                 } else {
-                    repository.insertNote(note)
+                    val newId = repository.insertNote(note)
+                    _uiState.update { it.copy(noteId = newId) }
+                    newId
                 }
 
                 // Sync with system AlarmManager & Widget safely
@@ -427,9 +471,14 @@ class NoteEditorViewModel(
                 }
 
                 _uiState.update { it.copy(noteId = savedId, isSaved = true) }
-                onSaved(savedId)
+                withContext(Dispatchers.Main) {
+                    onSaved(savedId)
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
+                withContext(Dispatchers.Main) {
+                    onSaved(0L)
+                }
             }
         }
     }

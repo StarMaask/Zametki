@@ -135,7 +135,7 @@ fun SearchScreen(
                     .padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                items(searchResults, key = { it.id }) { note ->
+                items(searchResults, key = { "${it.id}_${it.updatedAt}_${it.createdAt}" }) { note ->
                     NoteCard(
                         note = note,
                         onClick = { onNoteClick(note.id) },

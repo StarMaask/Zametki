@@ -90,7 +90,7 @@ fun TrashScreen(
                     .padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                items(notes, key = { it.id }) { note ->
+                items(notes, key = { "${it.id}_${it.updatedAt}_${it.createdAt}" }) { note ->
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically

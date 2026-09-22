@@ -342,7 +342,7 @@ fun NotesListScreen(
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                             modifier = Modifier.fillMaxSize()
                         ) {
-                            items(notesToDisplay, key = { it.id }) { note ->
+                            items(notesToDisplay, key = { "${it.id}_${it.updatedAt}_${it.createdAt}" }) { note ->
                                 NoteCard(
                                     note = note,
                                     onClick = {
@@ -365,7 +365,7 @@ fun NotesListScreen(
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                             modifier = Modifier.fillMaxSize()
                         ) {
-                            items(notesToDisplay, key = { it.id }) { note ->
+                            items(notesToDisplay, key = { "${it.id}_${it.updatedAt}_${it.createdAt}" }) { note ->
                                 NoteCard(
                                     note = note,
                                     onClick = {

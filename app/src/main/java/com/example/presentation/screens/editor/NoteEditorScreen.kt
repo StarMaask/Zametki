@@ -22,7 +22,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.focus.onFocusChanged
+import kotlinx.coroutines.launch
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
@@ -64,8 +68,9 @@ import com.example.util.ShareExportUtil
 import java.text.SimpleDateFormat
 import java.util.*
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.foundation.ExperimentalFoundationApi
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun NoteEditorScreen(
     viewModel: NoteEditorViewModel,
@@ -113,10 +118,12 @@ fun NoteEditorScreen(
     val inkColor = getInkColor(state.pageFormat, paperColor)
     val placeholderColor = getPlaceholderColor(state.pageFormat, paperColor)
     val pageFontFamily = getFontFamily(state.pageFormat)
+    val isDarkPaper = (paperColor.red * 0.299f + paperColor.green * 0.587f + paperColor.blue * 0.114f) < 0.45f
 
     BackHandler {
-        viewModel.saveNote(context)
-        onBack()
+        viewModel.saveNote(context) {
+            onBack()
+        }
     }
 
     Scaffold(
@@ -131,8 +138,9 @@ fun NoteEditorScreen(
                 navigationIcon = {
                     TooltipIconButton(
                         onClick = {
-                            viewModel.saveNote(context)
-                            onBack()
+                            viewModel.saveNote(context) {
+                                onBack()
+                            }
                         },
                         icon = Icons.AutoMirrored.Filled.ArrowBack,
                         tooltip = "Сохранить и вернуться",
@@ -143,24 +151,30 @@ fun NoteEditorScreen(
                     // Save Button
                     TooltipIconButton(
                         onClick = {
-                            viewModel.saveNote(context)
-                            Toast.makeText(context, "Заметка сохранена", Toast.LENGTH_SHORT).show()
+                            viewModel.saveNote(context) {
+                                Toast.makeText(context, "Заметка сохранена", Toast.LENGTH_SHORT).show()
+                                onBack()
+                            }
                         },
                         icon = Icons.Filled.Done,
-                        tooltip = "Сохранить заметку",
+                        tooltip = "Сохранить и выйти",
                         tint = MaterialTheme.colorScheme.primary
                     )
 
-                    // Page Format Button (Book / Ruled / Grid / Blank)
+                    // Page Format Button (Book / Ruled / Grid / Kraft / Vintage / etc.)
                     TooltipIconButton(
                         onClick = { showPageFormatDialog = true },
                         icon = when (state.pageFormat) {
                             PageFormat.BOOK -> Icons.Filled.AutoStories
                             PageFormat.RULED -> Icons.Filled.FormatAlignJustify
                             PageFormat.GRID -> Icons.Filled.BorderAll
+                            PageFormat.KRAFT -> Icons.Filled.Style
+                            PageFormat.VINTAGE -> Icons.Filled.Bookmark
+                            PageFormat.MIDNIGHT -> Icons.Filled.DarkMode
+                            PageFormat.BLUEPRINT -> Icons.Filled.Edit
                             PageFormat.BLANK -> Icons.Filled.Description
                         },
-                        tooltip = "Формат: ${state.pageFormat.title} (Книга/Тетрадь)",
+                        tooltip = "Формат листа: ${state.pageFormat.title}",
                         tint = MaterialTheme.colorScheme.primary
                     )
 
@@ -326,6 +340,7 @@ fun NoteEditorScreen(
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .imePadding()
                     .navigationBarsPadding(),
                 tonalElevation = 6.dp,
                 shadowElevation = 8.dp,
@@ -503,13 +518,17 @@ fun NoteEditorScreen(
                         }
                     }
 
-                    // 3. ФОРМАТ ЛИСТА (Book / Ruled / Grid / Blank button)
+                    // 3. ФОРМАТ ЛИСТА (Book / Ruled / Grid / Kraft / Vintage / etc.)
                     TooltipIconButton(
                         onClick = { showPageFormatDialog = true },
                         icon = when (state.pageFormat) {
                             PageFormat.BOOK -> Icons.Filled.AutoStories
                             PageFormat.RULED -> Icons.Filled.FormatAlignJustify
                             PageFormat.GRID -> Icons.Filled.BorderAll
+                            PageFormat.KRAFT -> Icons.Filled.Style
+                            PageFormat.VINTAGE -> Icons.Filled.Bookmark
+                            PageFormat.MIDNIGHT -> Icons.Filled.DarkMode
+                            PageFormat.BLUEPRINT -> Icons.Filled.Edit
                             PageFormat.BLANK -> Icons.Filled.Description
                         },
                         tooltip = "Формат листа: ${state.pageFormat.title}",
@@ -570,11 +589,16 @@ fun NoteEditorScreen(
         },
         containerColor = MaterialTheme.colorScheme.background
     ) { paddingValues ->
+        val scrollState = rememberScrollState()
+        val coroutineScope = rememberCoroutineScope()
+        val bringIntoViewRequester = remember { BringIntoViewRequester() }
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .verticalScroll(rememberScrollState())
+                .imeNestedScroll()
+                .verticalScroll(scrollState)
                 .padding(16.dp)
         ) {
             // Color Selector Bar if toggled
@@ -585,7 +609,7 @@ fun NoteEditorScreen(
                 ) {
                     Column(modifier = Modifier.padding(10.dp)) {
                         Text(
-                            text = "Выберите пастельный оттенок заметки:",
+                            text = "Выберите оттенок бумаги (13 дизайнерских цветов):",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -619,16 +643,20 @@ fun NoteEditorScreen(
                 shape = RoundedCornerShape(12.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth().padding(6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    PageFormat.values().forEach { format ->
+                    items(PageFormat.values()) { format ->
                         val isSelected = format == state.pageFormat
                         val chipIcon = when (format) {
                             PageFormat.BOOK -> Icons.Filled.AutoStories
                             PageFormat.RULED -> Icons.Filled.FormatAlignJustify
                             PageFormat.GRID -> Icons.Filled.BorderAll
+                            PageFormat.KRAFT -> Icons.Filled.Style
+                            PageFormat.VINTAGE -> Icons.Filled.Bookmark
+                            PageFormat.MIDNIGHT -> Icons.Filled.DarkMode
+                            PageFormat.BLUEPRINT -> Icons.Filled.Edit
                             PageFormat.BLANK -> Icons.Filled.Description
                         }
                         FilterChip(
@@ -644,8 +672,7 @@ fun NoteEditorScreen(
                             },
                             leadingIcon = {
                                 Icon(chipIcon, null, modifier = Modifier.size(14.dp))
-                            },
-                            modifier = Modifier.weight(1f)
+                            }
                         )
                     }
                 }
@@ -735,37 +762,127 @@ fun NoteEditorScreen(
                 val innerPaddingStart = when (state.pageFormat) {
                     PageFormat.BOOK -> 26.dp
                     PageFormat.RULED, PageFormat.GRID -> 56.dp
+                    PageFormat.KRAFT -> 20.dp
+                    PageFormat.VINTAGE -> 26.dp
+                    PageFormat.MIDNIGHT -> 22.dp
+                    PageFormat.BLUEPRINT -> 24.dp
                     PageFormat.BLANK -> 16.dp
                 }
                 val innerPaddingEnd = when (state.pageFormat) {
                     PageFormat.BOOK -> 22.dp
+                    PageFormat.VINTAGE -> 26.dp
+                    PageFormat.MIDNIGHT -> 22.dp
+                    PageFormat.BLUEPRINT -> 24.dp
                     else -> 16.dp
+                }
+                val innerPaddingTop = when (state.pageFormat) {
+                    PageFormat.KRAFT -> 34.dp
+                    PageFormat.VINTAGE -> 28.dp
+                    PageFormat.BOOK -> 22.dp
+                    PageFormat.RULED, PageFormat.GRID -> 16.dp
+                    else -> 20.dp
                 }
 
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = innerPaddingStart, end = innerPaddingEnd, top = 20.dp, bottom = 32.dp)
+                        .padding(start = innerPaddingStart, end = innerPaddingEnd, top = innerPaddingTop, bottom = 32.dp)
                 ) {
-                    // Book Chapter Header
-                    if (state.pageFormat == PageFormat.BOOK) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            HorizontalDivider(modifier = Modifier.weight(1f), color = inkColor.copy(alpha = 0.2f))
-                            Text(
-                                text = "  СТРАНИЦА КНИГИ  ",
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    fontFamily = FontFamily.Serif,
-                                    letterSpacing = 2.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = inkColor.copy(alpha = 0.6f)
+                    // Header for styles
+                    when (state.pageFormat) {
+                        PageFormat.BOOK -> {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                HorizontalDivider(modifier = Modifier.weight(1f), color = inkColor.copy(alpha = 0.2f))
+                                Text(
+                                    text = "  СТРАНИЦА КНИГИ  ",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontFamily = FontFamily.Serif,
+                                        letterSpacing = 2.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = inkColor.copy(alpha = 0.6f)
+                                    )
                                 )
-                            )
-                            HorizontalDivider(modifier = Modifier.weight(1f), color = inkColor.copy(alpha = 0.2f))
+                                HorizontalDivider(modifier = Modifier.weight(1f), color = inkColor.copy(alpha = 0.2f))
+                            }
                         }
+                        PageFormat.VINTAGE -> {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Text(
+                                    text = "✦ ──────── ❖ ──────── ✦",
+                                    style = MaterialTheme.typography.labelMedium.copy(
+                                        letterSpacing = 2.sp,
+                                        fontWeight = FontWeight.Light,
+                                        color = inkColor.copy(alpha = 0.5f)
+                                    )
+                                )
+                            }
+                        }
+                        PageFormat.BLUEPRINT -> {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "SPECIFICATION // DWG-01",
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 10.sp,
+                                    letterSpacing = 1.5.sp,
+                                    color = inkColor.copy(alpha = 0.7f),
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "SCALE 1:1",
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 10.sp,
+                                    letterSpacing = 1.sp,
+                                    color = inkColor.copy(alpha = 0.7f)
+                                )
+                            }
+                        }
+                        PageFormat.MIDNIGHT -> {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "✦ ЧЕРНОВИК НА СЛАНЦЕ ✦",
+                                    fontSize = 11.sp,
+                                    letterSpacing = 2.sp,
+                                    color = inkColor.copy(alpha = 0.6f),
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                        PageFormat.RULED -> {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                val dateFormat = remember { SimpleDateFormat("d MMMM yyyy г.", Locale("ru")) }
+                                Text(
+                                    text = "Тема заметки:",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = inkColor.copy(alpha = 0.5f)
+                                )
+                                Text(
+                                    text = dateFormat.format(Date(state.updatedAt)),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = inkColor.copy(alpha = 0.5f)
+                                )
+                            }
+                        }
+                        else -> {}
                     }
 
                     // Title Field
@@ -774,7 +891,13 @@ fun NoteEditorScreen(
                         onValueChange = { viewModel.onTitleChange(it) },
                         placeholder = {
                             Text(
-                                text = if (state.pageFormat == PageFormat.BOOK) "Название главы / заметки" else "Заголовок заметки",
+                                text = when (state.pageFormat) {
+                                    PageFormat.BOOK -> "Название главы / заметки"
+                                    PageFormat.VINTAGE -> "Заголовок манускрипта"
+                                    PageFormat.BLUEPRINT -> "Чертёж / Проект"
+                                    PageFormat.MIDNIGHT -> "Название заметки"
+                                    else -> "Заголовок заметки"
+                                },
                                 fontSize = 22.sp,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = pageFontFamily,
@@ -801,51 +924,79 @@ fun NoteEditorScreen(
                         modifier = Modifier.fillMaxWidth()
                     )
 
-                    Spacer(modifier = Modifier.height(4.dp))
+                    if (state.pageFormat == PageFormat.RULED) {
+                        HorizontalDivider(
+                            color = NotebookPalette.RuledLine,
+                            thickness = 1.dp,
+                            modifier = Modifier.padding(bottom = 6.dp)
+                        )
+                    } else if (state.pageFormat == PageFormat.VINTAGE) {
+                        HorizontalDivider(
+                            color = NotebookPalette.VintageFiligree.copy(alpha = 0.35f),
+                            thickness = 1.dp,
+                            modifier = Modifier.padding(bottom = 6.dp)
+                        )
+                    } else {
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
 
                     // Checklist mode or Regular content field
                     if (state.isChecklistMode) {
-                        Card(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                            colors = CardDefaults.cardColors(containerColor = paperColor.copy(alpha = 0.85f))
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
                         ) {
-                            Column(modifier = Modifier.padding(12.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    val completedCount = state.checkList.count { it.isChecked }
-                                    val totalCount = state.checkList.size
-                                    Column {
-                                        Text(
-                                            text = "Список дел ($completedCount/$totalCount)",
-                                            style = MaterialTheme.typography.titleSmall,
-                                            color = MaterialTheme.colorScheme.primary
-                                        )
-                                        Text(
-                                            text = if (state.sortCompletedToEnd) "Выполненные переносятся вниз" else "Без автосортировки",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = placeholderColor
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                val completedCount = state.checkList.count { it.isChecked }
+                                val totalCount = state.checkList.size
+                                Column {
+                                    Text(
+                                        text = "Список дел ($completedCount/$totalCount)",
+                                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                        color = if (isDarkPaper) NotebookPalette.DarkInk else MaterialTheme.colorScheme.primary
+                                    )
+                                    Text(
+                                        text = if (state.sortCompletedToEnd) "Выполненные переносятся вниз" else "Без автосортировки",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = placeholderColor
+                                    )
+                                }
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (completedCount > 0) {
+                                        TooltipIconButton(
+                                            onClick = { viewModel.clearCompletedItems() },
+                                            icon = Icons.Filled.DeleteSweep,
+                                            tooltip = "Удалить выполненные пункты",
+                                            tint = inkColor.copy(alpha = 0.7f)
                                         )
                                     }
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        TooltipIconButton(
-                                            onClick = { viewModel.toggleSortCompletedToEnd() },
-                                            icon = Icons.Filled.SwapVert,
-                                            tooltip = if (state.sortCompletedToEnd) "Отключить сортировку завершённых вниз" else "Переносить выполненные в конец",
-                                            tint = if (state.sortCompletedToEnd) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                        TextButton(onClick = { viewModel.toggleChecklistMode() }) {
-                                            Text("В текст")
-                                        }
+                                    TooltipIconButton(
+                                        onClick = { viewModel.toggleSortCompletedToEnd() },
+                                        icon = Icons.Filled.SwapVert,
+                                        tooltip = if (state.sortCompletedToEnd) "Отключить сортировку завершённых вниз" else "Переносить выполненные в конец",
+                                        tint = if (state.sortCompletedToEnd) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    TextButton(onClick = { viewModel.toggleChecklistMode() }) {
+                                        Text("В текст", color = if (isDarkPaper) NotebookPalette.DarkInk else MaterialTheme.colorScheme.primary)
                                     }
                                 }
+                            }
 
-                                state.checkList.forEach { item ->
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            state.checkList.forEachIndexed { index, item ->
+                                key(item.id) {
+                                    val itemRequester = remember { BringIntoViewRequester() }
+
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
+                                            .bringIntoViewRequester(itemRequester)
                                             .padding(vertical = 2.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
@@ -855,8 +1006,10 @@ fun NoteEditorScreen(
                                             colors = CheckboxDefaults.colors(
                                                 checkedColor = MaterialTheme.colorScheme.primary,
                                                 uncheckedColor = inkColor.copy(alpha = 0.6f)
-                                            )
+                                            ),
+                                            modifier = Modifier.minimumInteractiveComponentSize()
                                         )
+
                                         BasicTextField(
                                             value = item.text,
                                             onValueChange = { newText ->
@@ -864,7 +1017,14 @@ fun NoteEditorScreen(
                                             },
                                             modifier = Modifier
                                                 .weight(1f)
-                                                .padding(horizontal = 6.dp, vertical = 6.dp),
+                                                .padding(horizontal = 6.dp, vertical = 8.dp)
+                                                .onFocusChanged { focusState ->
+                                                    if (focusState.isFocused) {
+                                                        coroutineScope.launch {
+                                                            itemRequester.bringIntoView()
+                                                        }
+                                                    }
+                                                },
                                             textStyle = if (item.isChecked) {
                                                 MaterialTheme.typography.bodyLarge.copy(
                                                     color = inkColor.copy(alpha = 0.45f),
@@ -877,7 +1037,7 @@ fun NoteEditorScreen(
                                                     fontFamily = pageFontFamily
                                                 )
                                             },
-                                            cursorBrush = SolidColor(if (state.pageFormat == PageFormat.BOOK) NotebookPalette.BookBookmark else MaterialTheme.colorScheme.primary),
+                                            cursorBrush = SolidColor(if (state.pageFormat == PageFormat.BOOK) NotebookPalette.BookBookmark else if (isDarkPaper) Color.White else MaterialTheme.colorScheme.primary),
                                             keyboardOptions = KeyboardOptions(
                                                 capitalization = KeyboardCapitalization.Sentences,
                                                 imeAction = ImeAction.Next
@@ -888,114 +1048,138 @@ fun NoteEditorScreen(
                                                 }
                                             ),
                                             decorationBox = { innerTextField ->
-                                                if (item.text.isEmpty()) {
-                                                    Text(
-                                                        text = "Пункт списка...",
-                                                        style = MaterialTheme.typography.bodyLarge.copy(
-                                                            color = placeholderColor,
-                                                            fontFamily = pageFontFamily
+                                                Box(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    contentAlignment = Alignment.CenterStart
+                                                ) {
+                                                    if (item.text.isEmpty()) {
+                                                        Text(
+                                                            text = "Пункт списка...",
+                                                            style = MaterialTheme.typography.bodyLarge.copy(
+                                                                color = placeholderColor,
+                                                                fontFamily = pageFontFamily
+                                                            )
                                                         )
-                                                    )
+                                                    }
+                                                    innerTextField()
                                                 }
-                                                innerTextField()
                                             }
                                         )
+
+                                        // Delete item button with proper touch target
                                         IconButton(
                                             onClick = { viewModel.removeChecklistItem(item.id) },
-                                            modifier = Modifier.size(40.dp)
+                                            modifier = Modifier
+                                                .size(44.dp)
+                                                .minimumInteractiveComponentSize()
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Filled.Close,
                                                 contentDescription = "Удалить пункт",
-                                                tint = inkColor.copy(alpha = 0.55f),
+                                                tint = inkColor.copy(alpha = 0.65f),
                                                 modifier = Modifier.size(20.dp)
                                             )
                                         }
                                     }
                                 }
+                            }
 
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(top = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    OutlinedTextField(
-                                        value = checkItemInput,
-                                        onValueChange = { checkItemInput = it },
-                                        placeholder = { Text("Новый пункт списка...", color = placeholderColor) },
-                                        singleLine = true,
-                                        textStyle = MaterialTheme.typography.bodyMedium.copy(color = inkColor),
-                                        keyboardOptions = KeyboardOptions(
-                                            capitalization = KeyboardCapitalization.Sentences,
-                                            imeAction = ImeAction.Done
-                                        ),
-                                        keyboardActions = KeyboardActions(
-                                            onDone = {
-                                                if (checkItemInput.isNotBlank()) {
-                                                    viewModel.addChecklistItem(checkItemInput.trim())
-                                                    checkItemInput = ""
-                                                }
-                                            }
-                                        ),
-                                        colors = OutlinedTextFieldDefaults.colors(
-                                            focusedTextColor = inkColor,
-                                            unfocusedTextColor = inkColor,
-                                            focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                            unfocusedBorderColor = inkColor.copy(alpha = 0.25f)
-                                        ),
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Button(
-                                        onClick = {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                OutlinedTextField(
+                                    value = checkItemInput,
+                                    onValueChange = { checkItemInput = it },
+                                    placeholder = { Text("Новый пункт списка...", color = placeholderColor) },
+                                    singleLine = true,
+                                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = inkColor),
+                                    keyboardOptions = KeyboardOptions(
+                                        capitalization = KeyboardCapitalization.Sentences,
+                                        imeAction = ImeAction.Done
+                                    ),
+                                    keyboardActions = KeyboardActions(
+                                        onDone = {
                                             if (checkItemInput.isNotBlank()) {
                                                 viewModel.addChecklistItem(checkItemInput.trim())
                                                 checkItemInput = ""
                                             }
                                         }
-                                    ) {
-                                        Icon(Icons.Filled.Add, contentDescription = "Добавить пункт")
+                                    ),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedTextColor = inkColor,
+                                        unfocusedTextColor = inkColor,
+                                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                        unfocusedBorderColor = inkColor.copy(alpha = 0.35f),
+                                        focusedContainerColor = Color.Transparent,
+                                        unfocusedContainerColor = Color.Transparent
+                                    ),
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Button(
+                                    onClick = {
+                                        if (checkItemInput.isNotBlank()) {
+                                            viewModel.addChecklistItem(checkItemInput.trim())
+                                            checkItemInput = ""
+                                        }
                                     }
+                                ) {
+                                    Icon(Icons.Filled.Add, contentDescription = "Добавить пункт")
                                 }
                             }
                         }
                     } else {
-                        TextField(
+                        BasicTextField(
                             value = state.content,
                             onValueChange = { viewModel.onContentChange(it) },
-                            placeholder = {
-                                Text(
-                                    text = if (state.pageFormat == PageFormat.BOOK) "Начните писать главу книги или мысли..." else "Текст заметки...",
-                                    fontFamily = pageFontFamily,
-                                    color = placeholderColor,
-                                    fontSize = if (state.pageFormat == PageFormat.BOOK) 17.sp else 16.sp
-                                )
-                            },
-                            textStyle = MaterialTheme.typography.bodyLarge.copy(
-                                fontFamily = pageFontFamily,
-                                fontSize = if (state.pageFormat == PageFormat.BOOK) 17.sp else 16.sp,
-                                lineHeight = if (state.pageFormat == PageFormat.BOOK) 28.sp else 32.sp,
-                                color = inkColor
-                            ),
-                            colors = TextFieldDefaults.colors(
-                                focusedTextColor = inkColor,
-                                unfocusedTextColor = inkColor,
-                                focusedPlaceholderColor = placeholderColor,
-                                unfocusedPlaceholderColor = placeholderColor,
-                                cursorColor = if (state.pageFormat == PageFormat.BOOK) NotebookPalette.BookBookmark else MaterialTheme.colorScheme.primary,
-                                focusedContainerColor = Color.Transparent,
-                                unfocusedContainerColor = Color.Transparent,
-                                focusedIndicatorColor = Color.Transparent,
-                                unfocusedIndicatorColor = Color.Transparent
-                            ),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .defaultMinSize(minHeight = 350.dp)
+                                .defaultMinSize(minHeight = 380.dp)
+                                .bringIntoViewRequester(bringIntoViewRequester)
+                                .onFocusChanged { focusState ->
+                                    if (focusState.isFocused) {
+                                        coroutineScope.launch {
+                                            bringIntoViewRequester.bringIntoView()
+                                        }
+                                    }
+                                },
+                            textStyle = MaterialTheme.typography.bodyLarge.copy(
+                                fontFamily = pageFontFamily,
+                                fontSize = if (state.pageFormat == PageFormat.BOOK || state.pageFormat == PageFormat.VINTAGE) 17.sp else 16.sp,
+                                lineHeight = if (state.pageFormat == PageFormat.RULED) 34.sp else 30.sp,
+                                color = inkColor
+                            ),
+                            cursorBrush = SolidColor(if (state.pageFormat == PageFormat.BOOK) NotebookPalette.BookBookmark else if (isDarkPaper) Color.White else MaterialTheme.colorScheme.primary),
+                            decorationBox = { innerTextField ->
+                                Box(modifier = Modifier.fillMaxWidth()) {
+                                    if (state.content.isEmpty()) {
+                                        Text(
+                                            text = when (state.pageFormat) {
+                                                PageFormat.BOOK -> "Начните писать главу книги или мысли..."
+                                                PageFormat.VINTAGE -> "Начертайте древний свиток или заметку..."
+                                                PageFormat.MIDNIGHT -> "Пишите белым мелом по грифелю..."
+                                                PageFormat.BLUEPRINT -> "Чертежные заметки, расчеты, схемы..."
+                                                PageFormat.KRAFT -> "Заметки на крафтовой бумаге..."
+                                                else -> "Текст заметки..."
+                                            },
+                                            fontFamily = pageFontFamily,
+                                            color = placeholderColor,
+                                            fontSize = if (state.pageFormat == PageFormat.BOOK || state.pageFormat == PageFormat.VINTAGE) 17.sp else 16.sp
+                                        )
+                                    }
+                                    innerTextField()
+                                }
+                            }
                         )
                     }
                 }
             }
+
+            // Headroom spacer so keyboard does not cover the bottom text or paper
+            Spacer(modifier = Modifier.height(260.dp))
         }
     }
 
@@ -1139,10 +1323,14 @@ fun NoteEditorScreen(
     if (showPageFormatDialog) {
         PageFormatSelectorDialog(
             currentFormat = state.pageFormat,
+            currentColorHex = state.colorHex,
             onDismissRequest = { showPageFormatDialog = false },
             onFormatSelect = { format ->
                 showPageFormatDialog = false
                 viewModel.onPageFormatChange(format)
+            },
+            onColorSelect = { hex ->
+                viewModel.onColorChange(hex)
             }
         )
     }

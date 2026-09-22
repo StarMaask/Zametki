@@ -8,18 +8,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoStories
-import androidx.compose.material.icons.filled.BorderAll
-import androidx.compose.material.icons.filled.CheckBox
-import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.FormatAlignJustify
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -250,6 +239,10 @@ fun NoteCard(
                                         PageFormat.BOOK -> Icons.Filled.AutoStories
                                         PageFormat.RULED -> Icons.Filled.FormatAlignJustify
                                         PageFormat.GRID -> Icons.Filled.BorderAll
+                                        PageFormat.KRAFT -> Icons.Filled.Style
+                                        PageFormat.VINTAGE -> Icons.Filled.Bookmark
+                                        PageFormat.MIDNIGHT -> Icons.Filled.DarkMode
+                                        PageFormat.BLUEPRINT -> Icons.Filled.Edit
                                         PageFormat.BLANK -> Icons.Filled.Description
                                     },
                                     contentDescription = null,
