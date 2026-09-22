@@ -13,6 +13,7 @@ interface NoteRepository {
     suspend fun updateNote(note: Note)
     suspend fun deleteNotePermanently(id: Long)
     suspend fun clearTrash()
+    suspend fun deleteOldTrashNotes(thresholdTime: Long)
     fun getAllFolders(): Flow<List<String>>
     suspend fun getAllNotesForBackup(): List<Note>
     suspend fun restoreNotes(notes: List<Note>)

@@ -211,6 +211,19 @@ fun NoteEditorScreen(
                             DropdownMenuItem(
                                 text = {
                                     Column {
+                                        Text(if (state.isLocked) "Снять защиту PIN-кодом" else "Защитить PIN-кодом")
+                                        Text(if (state.isLocked) "Заметка будет доступна без ввода PIN" else "Скрывать содержимое до ввода PIN", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                },
+                                leadingIcon = { Icon(if (state.isLocked) Icons.Filled.LockOpen else Icons.Filled.Lock, null) },
+                                onClick = {
+                                    showTopMenu = false
+                                    viewModel.toggleLock()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = {
+                                    Column {
                                         Text(if (state.isArchived) "Из архива" else "В архив")
                                         Text(if (state.isArchived) "Вернуть в общий список" else "Скрыть с главного экрана", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }

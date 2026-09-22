@@ -19,6 +19,7 @@ data class NoteEditorUiState(
     val colorHex: String = "#FFFFFF",
     val isPinned: Boolean = false,
     val isArchived: Boolean = false,
+    val isLocked: Boolean = false,
     val reminderTime: Long? = null,
     val tags: List<String> = emptyList(),
     val checkList: List<CheckListItem> = emptyList(),
@@ -27,6 +28,9 @@ data class NoteEditorUiState(
     val folder: String? = null,
     val availableFolders: List<String> = emptyList(),
     val isChecklistMode: Boolean = false,
+    val isMarkdownPreview: Boolean = false,
+    val canUndo: Boolean = false,
+    val canRedo: Boolean = false,
     val isSaved: Boolean = false,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
@@ -36,6 +40,16 @@ data class NoteEditorUiState(
 
     val charCount: Int
         get() = content.length
+
+    val readingTimeFormatted: String
+        get() {
+            val words = wordCount
+            return when {
+                words == 0 -> "0 мин"
+                words < 100 -> "< 1 мин"
+                else -> "~${maxOf(1, (words + 90) / 180)} мин"
+            }
+        }
 
     fun toDomainNote(): Note {
         val checklistJson = if (checkList.isNotEmpty()) kotlinx.serialization.json.Json.encodeToString(checkList) else ""
@@ -55,7 +69,8 @@ data class NoteEditorUiState(
             checkListJson = checklistJson,
             imageUrisJson = imageUrisJson,
             audioUri = audioUri,
-            folder = folder
+            folder = folder,
+            isLocked = isLocked
         )
     }
 }
@@ -67,6 +82,10 @@ class NoteEditorViewModel(
 
     private val _uiState = MutableStateFlow(NoteEditorUiState(noteId = initialNoteId))
     val uiState: StateFlow<NoteEditorUiState> = _uiState.asStateFlow()
+
+    private val undoStack = mutableListOf<String>()
+    private val redoStack = mutableListOf<String>()
+    private var lastRecordedText: String = ""
 
     init {
         loadFolders()
@@ -108,16 +127,71 @@ class NoteEditorViewModel(
                     imageUris = parsedImages,
                     audioUri = note.audioUri,
                     folder = note.folder,
+                    isLocked = note.isLocked,
                     isChecklistMode = parsedChecklist.isNotEmpty(),
                     createdAt = note.createdAt,
                     updatedAt = note.updatedAt
                 )
             }
+            lastRecordedText = note.content
         }
     }
 
     fun onTitleChange(title: String) { _uiState.update { it.copy(title = title) } }
-    fun onContentChange(content: String) { _uiState.update { it.copy(content = content) } }
+
+    fun onContentChange(content: String) {
+        val previous = _uiState.value.content
+        if (previous != content) {
+            undoStack.add(previous)
+            redoStack.clear()
+            _uiState.update {
+                it.copy(
+                    content = content,
+                    canUndo = undoStack.isNotEmpty(),
+                    canRedo = redoStack.isNotEmpty()
+                )
+            }
+        }
+    }
+
+    fun undo() {
+        if (undoStack.isNotEmpty()) {
+            val current = _uiState.value.content
+            val previous = undoStack.removeAt(undoStack.lastIndex)
+            redoStack.add(current)
+            _uiState.update {
+                it.copy(
+                    content = previous,
+                    canUndo = undoStack.isNotEmpty(),
+                    canRedo = redoStack.isNotEmpty()
+                )
+            }
+        }
+    }
+
+    fun redo() {
+        if (redoStack.isNotEmpty()) {
+            val current = _uiState.value.content
+            val next = redoStack.removeAt(redoStack.lastIndex)
+            undoStack.add(current)
+            _uiState.update {
+                it.copy(
+                    content = next,
+                    canUndo = undoStack.isNotEmpty(),
+                    canRedo = redoStack.isNotEmpty()
+                )
+            }
+        }
+    }
+
+    fun toggleMarkdownPreview() {
+        _uiState.update { it.copy(isMarkdownPreview = !it.isMarkdownPreview) }
+    }
+
+    fun toggleLock() {
+        _uiState.update { it.copy(isLocked = !it.isLocked) }
+    }
+
     fun onColorChange(colorHex: String) { _uiState.update { it.copy(colorHex = colorHex) } }
     fun togglePin() { _uiState.update { it.copy(isPinned = !it.isPinned) } }
     fun onFolderChange(folder: String?) { _uiState.update { it.copy(folder = folder) } }
@@ -230,7 +304,8 @@ class NoteEditorViewModel(
                 checkListJson = checklistJson,
                 imageUrisJson = imageUrisJson,
                 audioUri = state.audioUri,
-                folder = state.folder
+                folder = state.folder,
+                isLocked = state.isLocked
             )
 
             val savedId = if (state.noteId > 0) {

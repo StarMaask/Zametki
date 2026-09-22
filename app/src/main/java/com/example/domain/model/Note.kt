@@ -18,5 +18,6 @@ data class Note(
     val checkListJson: String = "",
     val imageUrisJson: String = "",
     val audioUri: String? = null,
-    val folder: String? = null
+    val folder: String? = null,
+    val isLocked: Boolean = false
 )

@@ -40,6 +40,9 @@ interface NoteDao {
     @Query("DELETE FROM notes WHERE isDeleted = 1")
     suspend fun clearTrash()
 
+    @Query("DELETE FROM notes WHERE isDeleted = 1 AND updatedAt < :thresholdTime")
+    suspend fun deleteOldTrashNotes(thresholdTime: Long)
+
     @Query("SELECT DISTINCT folder FROM notes WHERE folder IS NOT NULL AND folder != '' AND isDeleted = 0")
     fun getAllFolders(): Flow<List<String>>
 

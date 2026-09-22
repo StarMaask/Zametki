@@ -47,6 +47,10 @@ class NoteRepositoryImpl(
         dao.clearTrash()
     }
 
+    override suspend fun deleteOldTrashNotes(thresholdTime: Long) {
+        dao.deleteOldTrashNotes(thresholdTime)
+    }
+
     override fun getAllFolders(): Flow<List<String>> {
         return dao.getAllFolders()
     }

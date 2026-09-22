@@ -21,7 +21,8 @@ data class NoteEntity(
     val checkListJson: String,
     val imageUrisJson: String,
     val audioUri: String?,
-    val folder: String?
+    val folder: String?,
+    val isLocked: Boolean = false
 ) {
     fun toDomain(): Note {
         return Note(
@@ -39,7 +40,8 @@ data class NoteEntity(
             checkListJson = checkListJson,
             imageUrisJson = imageUrisJson,
             audioUri = audioUri,
-            folder = folder
+            folder = folder,
+            isLocked = isLocked
         )
     }
 
@@ -60,7 +62,8 @@ data class NoteEntity(
                 checkListJson = note.checkListJson,
                 imageUrisJson = note.imageUrisJson,
                 audioUri = note.audioUri,
-                folder = note.folder
+                folder = note.folder,
+                isLocked = note.isLocked
             )
         }
     }
