@@ -12,6 +12,7 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -75,6 +76,7 @@ import com.example.presentation.components.getPaperColor
 import com.example.presentation.components.getPlaceholderColor
 import com.example.ui.theme.NoteColors
 import com.example.util.NoteFontHelper
+import com.example.util.NoteSpeechManager
 import com.example.util.RichMarkdownVisualTransformation
 import com.example.util.ShareExportUtil
 import java.text.SimpleDateFormat
@@ -195,6 +197,13 @@ fun NoteEditorScreen(
         }
     }
 
+    val speechManager = remember { NoteSpeechManager(context) }
+    DisposableEffect(Unit) {
+        onDispose {
+            speechManager.release()
+        }
+    }
+
     fun applyFormatting(prefix: String, suffix: String = prefix) {
         val selection = contentTextFieldValue.selection
         val text = contentTextFieldValue.text
@@ -202,6 +211,31 @@ fun NoteEditorScreen(
             val start = minOf(selection.start, selection.end)
             val end = maxOf(selection.start, selection.end)
             val selected = text.substring(start, end)
+
+            // 1. If selection itself is already wrapped with prefix and suffix -> toggle off (unwrap)
+            if (selected.startsWith(prefix) && selected.endsWith(suffix) && selected.length >= prefix.length + suffix.length) {
+                val unwrapped = selected.substring(prefix.length, selected.length - suffix.length)
+                val newText = text.substring(0, start) + unwrapped + text.substring(end)
+                val newSelection = TextRange(start, start + unwrapped.length)
+                contentTextFieldValue = TextFieldValue(newText, newSelection)
+                viewModel.onContentChange(newText)
+                return
+            }
+
+            // 2. If text around selection is already wrapped -> toggle off (unwrap outer)
+            if (start >= prefix.length && end + suffix.length <= text.length) {
+                val before = text.substring(start - prefix.length, start)
+                val after = text.substring(end, end + suffix.length)
+                if (before == prefix && after == suffix) {
+                    val newText = text.substring(0, start - prefix.length) + selected + text.substring(end + suffix.length)
+                    val newSelection = TextRange(start - prefix.length, end - prefix.length)
+                    contentTextFieldValue = TextFieldValue(newText, newSelection)
+                    viewModel.onContentChange(newText)
+                    return
+                }
+            }
+
+            // 3. Normal wrap
             val newText = text.substring(0, start) + prefix + selected + suffix + text.substring(end)
             val newSelection = TextRange(start + prefix.length, end + prefix.length)
             contentTextFieldValue = TextFieldValue(newText, newSelection)
@@ -236,8 +270,10 @@ fun NoteEditorScreen(
             val start = minOf(selection.start, selection.end)
             val end = maxOf(selection.start, selection.end)
             val selected = text.substring(start, end)
-            val newText = text.substring(0, start) + openTag + selected + closeTag + text.substring(end)
-            val newSelection = TextRange(start + openTag.length, end + openTag.length)
+            // Strip any existing color tags in the selection
+            val cleaned = selected.replace(Regex("\\[color=#[0-9a-fA-F]{6}\\]"), "").replace("[/color]", "")
+            val newText = text.substring(0, start) + openTag + cleaned + closeTag + text.substring(end)
+            val newSelection = TextRange(start + openTag.length, start + openTag.length + cleaned.length)
             contentTextFieldValue = TextFieldValue(newText, newSelection)
             viewModel.onContentChange(newText)
         } else {
@@ -315,6 +351,21 @@ fun NoteEditorScreen(
                         icon = if (state.isMarkdownPreview) Icons.Filled.Edit else Icons.Filled.Visibility,
                         tooltip = if (state.isMarkdownPreview) "Режим редактирования" else "Предпросмотр Markdown и стилей",
                         tint = if (state.isMarkdownPreview) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                    )
+
+                    // Text-to-Speech (Озвучить заметку вслух)
+                    TooltipIconButton(
+                        onClick = {
+                            if (speechManager.isSpeaking) {
+                                speechManager.stop()
+                            } else {
+                                val fullText = if (state.content.isNotBlank()) state.content else state.title
+                                speechManager.speak(fullText, state.title)
+                            }
+                        },
+                        icon = if (speechManager.isSpeaking) Icons.Filled.VolumeUp else Icons.Filled.VolumeMute,
+                        tooltip = if (speechManager.isSpeaking) "Остановить чтение вслух" else "Озвучить заметку (звук в тексте)",
+                        tint = if (speechManager.isSpeaking) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                     )
 
                     // Share Button (Sheet with text, photo page, pdf, txt, copy)
@@ -672,7 +723,7 @@ fun NoteEditorScreen(
                                         text = {
                                             Column {
                                                 Text(font.title, fontWeight = if (font == state.noteFont) FontWeight.Bold else FontWeight.Normal)
-                                                Text(font.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                Text(font.subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                             }
                                         },
                                         leadingIcon = {
@@ -717,6 +768,36 @@ fun NoteEditorScreen(
                             Icon(Icons.Filled.Mic, contentDescription = "Звук в текст", modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
                             Text("Звук в текст", fontSize = 12.sp)
+                        }
+
+                        // Озвучить текст (Text-to-Speech)
+                        FilledTonalButton(
+                            onClick = {
+                                if (speechManager.isSpeaking) {
+                                    speechManager.stop()
+                                } else {
+                                    val fullText = if (state.content.isNotBlank()) state.content else state.title
+                                    speechManager.speak(fullText, state.title)
+                                }
+                            },
+                            modifier = Modifier.height(34.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp),
+                            colors = if (speechManager.isSpeaking) {
+                                ButtonDefaults.filledTonalButtonColors(
+                                    containerColor = MaterialTheme.colorScheme.primary,
+                                    contentColor = MaterialTheme.colorScheme.onPrimary
+                                )
+                            } else {
+                                ButtonDefaults.filledTonalButtonColors()
+                            }
+                        ) {
+                            Icon(
+                                imageVector = if (speechManager.isSpeaking) Icons.Filled.VolumeUp else Icons.Filled.RecordVoiceOver,
+                                contentDescription = "Озвучить текст",
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(if (speechManager.isSpeaking) "Стоп" else "Озвучить", fontSize = 12.sp)
                         }
 
                         // Заголовок H1
@@ -1081,6 +1162,80 @@ fun NoteEditorScreen(
                 .verticalScroll(scrollState)
                 .padding(16.dp)
         ) {
+            // Active Speech (Звук в тексте / Озвучивание) Player Banner
+            AnimatedVisibility(visible = speechManager.isSpeaking) {
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp),
+                    tonalElevation = 4.dp
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.VolumeUp,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "Озвучивание текста (звук)",
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                                Text(
+                                    text = "Чтение текста заметки вслух",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f)
+                                )
+                            }
+                        }
+
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            FilledTonalButton(
+                                onClick = { speechManager.cycleSpeechRate() },
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                modifier = Modifier.height(32.dp)
+                            ) {
+                                Text(
+                                    text = "${speechManager.speechRate}x",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(8.dp))
+
+                            IconButton(
+                                onClick = { speechManager.stop() },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Stop,
+                                    contentDescription = "Остановить чтение",
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             // Color Selector Bar if toggled
             if (showColorPicker) {
                 Card(
@@ -1864,14 +2019,14 @@ fun NoteEditorScreen(
     if (showShareSheet) {
         ShareNoteBottomSheet(
             note = state.toDomainNote(),
-            onDismiss = { showShareSheet = false }
+            onDismissRequest = { showShareSheet = false }
         )
     }
 
     if (showFontDigitizerDialog) {
         CustomFontDigitizerDialog(
-            onDismiss = { showFontDigitizerDialog = false },
-            onFontSelected = { font ->
+            onDismissRequest = { showFontDigitizerDialog = false },
+            onFontApplied = { font ->
                 showFontDigitizerDialog = false
                 viewModel.onFontFormatChange(font)
                 Toast.makeText(context, "Применён шрифт: ${font.title}", Toast.LENGTH_SHORT).show()

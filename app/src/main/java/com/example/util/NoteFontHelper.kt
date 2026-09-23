@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Typeface
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import com.example.R
 import com.example.domain.model.NoteFontFamily
 import java.io.File
@@ -13,10 +14,39 @@ object NoteFontHelper {
     fun getFontFamily(context: Context, format: NoteFontFamily, customFontPath: String? = null): FontFamily {
         return when (format) {
             NoteFontFamily.DEFAULT -> FontFamily.Default
-            NoteFontFamily.HANDWRITING_CAVEAT -> FontFamily(Font(R.font.caveat))
-            NoteFontFamily.HANDWRITING_MARCK -> FontFamily(Font(R.font.marck_script))
-            NoteFontFamily.SERIF_PLAYFAIR -> FontFamily(Font(R.font.playfair_display))
-            NoteFontFamily.MONOSPACE -> FontFamily(Font(R.font.roboto_mono))
+            NoteFontFamily.HANDWRITING_CAVEAT -> try {
+                FontFamily(
+                    Font(R.font.caveat, FontWeight.Normal),
+                    Font(R.font.caveat, FontWeight.Bold),
+                    Font(R.font.caveat, FontWeight.SemiBold)
+                )
+            } catch (_: Exception) {
+                FontFamily.Cursive
+            }
+            NoteFontFamily.HANDWRITING_MARCK -> try {
+                FontFamily(
+                    Font(R.font.marck_script, FontWeight.Normal),
+                    Font(R.font.marck_script, FontWeight.Bold)
+                )
+            } catch (_: Exception) {
+                FontFamily.Cursive
+            }
+            NoteFontFamily.SERIF_PLAYFAIR -> try {
+                FontFamily(
+                    Font(R.font.playfair_display, FontWeight.Normal),
+                    Font(R.font.playfair_display, FontWeight.Bold)
+                )
+            } catch (_: Exception) {
+                FontFamily.Serif
+            }
+            NoteFontFamily.MONOSPACE -> try {
+                FontFamily(
+                    Font(R.font.roboto_mono, FontWeight.Normal),
+                    Font(R.font.roboto_mono, FontWeight.Bold)
+                )
+            } catch (_: Exception) {
+                FontFamily.Monospace
+            }
             NoteFontFamily.CUSTOM_DIGITIZED -> {
                 val customFile = customFontPath?.let { File(it) }
                     ?: File(context.filesDir, "custom_fonts/active_font.ttf")
@@ -25,10 +55,10 @@ object NoteFontHelper {
                         val typeface = Typeface.createFromFile(customFile)
                         FontFamily(typeface)
                     } catch (_: Exception) {
-                        FontFamily(Font(R.font.caveat))
+                        getFontFamily(context, NoteFontFamily.HANDWRITING_CAVEAT)
                     }
                 } else {
-                    FontFamily(Font(R.font.caveat))
+                    getFontFamily(context, NoteFontFamily.HANDWRITING_CAVEAT)
                 }
             }
         }

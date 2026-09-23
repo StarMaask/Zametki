@@ -36,6 +36,7 @@ fun NoteCard(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onPinClick: () -> Unit,
+    onShareClick: (() -> Unit)? = null,
     isSelected: Boolean = false,
     isSelectionMode: Boolean = false,
     modifier: Modifier = Modifier
@@ -181,8 +182,11 @@ fun NoteCard(
                     }
                 } else if (note.content.isNotBlank()) {
                     Spacer(modifier = Modifier.height(6.dp))
+                    val styledText = remember(note.content, customTextColor) {
+                        buildCardAnnotatedContent(note.content, customTextColor)
+                    }
                     Text(
-                        text = note.content,
+                        text = styledText,
                         style = MaterialTheme.typography.bodyMedium,
                         fontFamily = noteFontFamily,
                         color = customTextColor,
@@ -192,8 +196,11 @@ fun NoteCard(
                 }
             } else if (note.content.isNotBlank()) {
                 Spacer(modifier = Modifier.height(6.dp))
+                val styledText = remember(note.content, customTextColor) {
+                    buildCardAnnotatedContent(note.content, customTextColor)
+                }
                 Text(
-                    text = note.content,
+                    text = styledText,
                     style = MaterialTheme.typography.bodyMedium,
                     fontFamily = noteFontFamily,
                     color = customTextColor,
@@ -321,12 +328,93 @@ fun NoteCard(
             }
 
             Spacer(modifier = Modifier.height(8.dp))
-            val dateStr = SimpleDateFormat("d MMM, HH:mm", Locale.getDefault()).format(Date(note.updatedAt))
-            Text(
-                text = dateStr,
-                fontSize = 10.sp,
-                color = secondaryColor
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                val dateStr = SimpleDateFormat("d MMM, HH:mm", Locale.getDefault()).format(Date(note.updatedAt))
+                Text(
+                    text = dateStr,
+                    fontSize = 10.sp,
+                    color = secondaryColor
+                )
+
+                if (onShareClick != null && !isSelectionMode) {
+                    IconButton(
+                        onClick = onShareClick,
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Share,
+                            contentDescription = "Поделиться заметкой",
+                            tint = secondaryColor,
+                            modifier = Modifier.size(15.dp)
+                        )
+                    }
+                }
+            }
         }
     }
+}
+
+private fun buildCardAnnotatedContent(rawText: String, defaultColor: Color): androidx.compose.ui.text.AnnotatedString {
+    val builder = androidx.compose.ui.text.AnnotatedString.Builder()
+    var lastIndex = 0
+    val regex = Regex("(\\*\\*(.+?)\\*\\*)|(\\*([^*\\n]+?)\\*)|(<u>(.+?)</u>)|(~~(.+?)~~)|(==(.+?)==)|(\\[color=(#[0-9a-fA-F]{6})\\](.*?)\\[/color\\])")
+
+    for (match in regex.findAll(rawText)) {
+        if (match.range.first > lastIndex) {
+            builder.append(rawText.substring(lastIndex, match.range.first))
+        }
+        val text = match.value
+        when {
+            text.startsWith("**") && text.endsWith("**") && text.length >= 4 -> {
+                val inner = text.substring(2, text.length - 2)
+                val start = builder.length
+                builder.append(inner)
+                builder.addStyle(androidx.compose.ui.text.SpanStyle(fontWeight = FontWeight.Bold), start, builder.length)
+            }
+            text.startsWith("*") && text.endsWith("*") && text.length >= 2 -> {
+                val inner = text.substring(1, text.length - 1)
+                val start = builder.length
+                builder.append(inner)
+                builder.addStyle(androidx.compose.ui.text.SpanStyle(fontStyle = androidx.compose.ui.text.font.FontStyle.Italic), start, builder.length)
+            }
+            text.startsWith("<u>") && text.endsWith("</u>") && text.length >= 7 -> {
+                val inner = text.substring(3, text.length - 4)
+                val start = builder.length
+                builder.append(inner)
+                builder.addStyle(androidx.compose.ui.text.SpanStyle(textDecoration = TextDecoration.Underline), start, builder.length)
+            }
+            text.startsWith("~~") && text.endsWith("~~") && text.length >= 4 -> {
+                val inner = text.substring(2, text.length - 2)
+                val start = builder.length
+                builder.append(inner)
+                builder.addStyle(androidx.compose.ui.text.SpanStyle(textDecoration = TextDecoration.LineThrough), start, builder.length)
+            }
+            text.startsWith("==") && text.endsWith("==") && text.length >= 4 -> {
+                val inner = text.substring(2, text.length - 2)
+                val start = builder.length
+                builder.append(inner)
+                builder.addStyle(androidx.compose.ui.text.SpanStyle(background = Color(0xFFFEF08A), color = Color(0xFF1E293B)), start, builder.length)
+            }
+            text.startsWith("[color=") -> {
+                val hex = match.groups[11]?.value ?: "#000000"
+                val inner = match.groups[12]?.value ?: ""
+                val color = try { Color(android.graphics.Color.parseColor(hex)) } catch (_: Exception) { defaultColor }
+                val start = builder.length
+                builder.append(inner)
+                builder.addStyle(androidx.compose.ui.text.SpanStyle(color = color), start, builder.length)
+            }
+            else -> {
+                builder.append(text)
+            }
+        }
+        lastIndex = match.range.last + 1
+    }
+    if (lastIndex < rawText.length) {
+        builder.append(rawText.substring(lastIndex))
+    }
+    return builder.toAnnotatedString()
 }

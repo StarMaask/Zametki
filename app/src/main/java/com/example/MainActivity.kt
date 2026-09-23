@@ -136,6 +136,7 @@ class MainActivity : FragmentActivity() {
                         }
                     } else {
                         val navController = rememberNavController()
+                        val notesListViewModel = remember { NotesListViewModel(repository, preferencesManager) }
 
                         LaunchedEffect(Unit) {
                             val openNoteId = intent.getLongExtra("open_note_id", 0L)
@@ -156,9 +157,8 @@ class MainActivity : FragmentActivity() {
                             startDestination = Screen.NotesList.route
                         ) {
                             composable(Screen.NotesList.route) {
-                                val viewModel = remember { NotesListViewModel(repository, preferencesManager) }
                                 NotesListScreen(
-                                    viewModel = viewModel,
+                                    viewModel = notesListViewModel,
                                     onNoteClick = { noteId ->
                                         navController.navigate(Screen.NoteEditor.createRoute(noteId))
                                     },

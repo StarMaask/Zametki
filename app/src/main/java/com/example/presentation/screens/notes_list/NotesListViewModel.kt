@@ -33,7 +33,9 @@ class NotesListViewModel(
     private val preferencesManager: UserPreferencesManager
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(NotesListUiState())
+    private val _uiState = MutableStateFlow(
+        NotesListUiState(isGridLayout = preferencesManager.isGridLayoutSync())
+    )
     val uiState: StateFlow<NotesListUiState> = _uiState.asStateFlow()
 
     init {
@@ -142,8 +144,9 @@ class NotesListViewModel(
     }
 
     fun toggleLayout() {
+        val next = !_uiState.value.isGridLayout
+        _uiState.update { it.copy(isGridLayout = next) }
         viewModelScope.launch {
-            val next = !_uiState.value.isGridLayout
             preferencesManager.setGridLayout(next)
         }
     }

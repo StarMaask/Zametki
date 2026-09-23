@@ -29,6 +29,12 @@ class UserPreferencesManager(private val context: Context) {
     private val KEY_IS_GRID_LAYOUT = booleanPreferencesKey("is_grid_layout")
     private val KEY_CUSTOM_FONT_PATH = stringPreferencesKey("custom_font_path")
 
+    private val syncPrefs = context.getSharedPreferences("user_settings_sync", Context.MODE_PRIVATE)
+
+    fun isGridLayoutSync(): Boolean {
+        return syncPrefs.getBoolean("is_grid_layout", true)
+    }
+
     val fontSizeFlow: Flow<FontSizeScale> = context.dataStore.data.map { prefs ->
         val name = prefs[KEY_FONT_SIZE] ?: FontSizeScale.NORMAL.name
         try {
@@ -98,6 +104,7 @@ class UserPreferencesManager(private val context: Context) {
     }
 
     suspend fun setGridLayout(isGrid: Boolean) {
+        syncPrefs.edit().putBoolean("is_grid_layout", isGrid).apply()
         context.dataStore.edit { prefs ->
             prefs[KEY_IS_GRID_LAYOUT] = isGrid
         }

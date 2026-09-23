@@ -28,6 +28,7 @@ import com.example.presentation.components.FilterBottomSheet
 import com.example.presentation.components.HelpDialog
 import com.example.presentation.components.NoteCard
 import com.example.presentation.components.NoteTemplateDialog
+import com.example.presentation.components.ShareNoteBottomSheet
 import com.example.presentation.components.TooltipIconButton
 import com.example.ui.theme.NoteColors
 
@@ -49,6 +50,7 @@ fun NotesListScreen(
     var showColorDialog by remember { mutableStateOf(false) }
     var showHelpDialog by remember { mutableStateOf(false) }
     var showTemplateDialog by remember { mutableStateOf(false) }
+    var noteToShare by remember { mutableStateOf<Note?>(null) }
 
     Scaffold(
         topBar = {
@@ -63,6 +65,16 @@ fun NotesListScreen(
                         )
                     },
                     actions = {
+                        if (state.selectedNoteIds.isNotEmpty()) {
+                            TooltipIconButton(
+                                onClick = {
+                                    val note = state.notes.firstOrNull { state.selectedNoteIds.contains(it.id) }
+                                    if (note != null) noteToShare = note
+                                },
+                                icon = Icons.Filled.Share,
+                                tooltip = "Поделиться заметкой"
+                            )
+                        }
                         val anyUnpinned = state.notes.filter { state.selectedNoteIds.contains(it.id) }.any { !it.isPinned }
                         TooltipIconButton(
                             onClick = { viewModel.pinSelectedNotes(anyUnpinned) },
@@ -354,6 +366,7 @@ fun NotesListScreen(
                                     },
                                     onLongClick = { viewModel.toggleNoteSelection(note.id) },
                                     onPinClick = { viewModel.togglePin(note) },
+                                    onShareClick = { noteToShare = note },
                                     isSelected = state.selectedNoteIds.contains(note.id),
                                     isSelectionMode = state.isSelectionMode
                                 )
@@ -377,6 +390,7 @@ fun NotesListScreen(
                                     },
                                     onLongClick = { viewModel.toggleNoteSelection(note.id) },
                                     onPinClick = { viewModel.togglePin(note) },
+                                    onShareClick = { noteToShare = note },
                                     isSelected = state.selectedNoteIds.contains(note.id),
                                     isSelectionMode = state.isSelectionMode
                                 )
@@ -510,6 +524,13 @@ fun NotesListScreen(
                     onNoteClick(0L)
                 }
             }
+        )
+    }
+
+    if (noteToShare != null) {
+        ShareNoteBottomSheet(
+            note = noteToShare!!,
+            onDismissRequest = { noteToShare = null }
         )
     }
 }
