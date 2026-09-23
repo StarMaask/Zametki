@@ -1,21 +1,27 @@
 package com.example.presentation.screens.settings
 
 import android.content.Intent
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Fingerprint
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Password
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -23,6 +29,7 @@ import com.example.data.preferences.FontSizeScale
 import com.example.data.preferences.UserPreferencesManager
 import com.example.domain.model.Note
 import com.example.domain.repository.NoteRepository
+import com.example.presentation.components.AudioPerceptionSettingsDialog
 import com.example.presentation.components.TooltipIconButton
 import com.example.ui.theme.AppThemePreset
 import com.example.util.BiometricAuthUtil
@@ -52,6 +59,7 @@ fun SettingsScreen(
     var showImportDialog by remember { mutableStateOf(false) }
     var importJsonInput by remember { mutableStateOf("") }
     var importError by remember { mutableStateOf<String?>(null) }
+    var showAudioPerceptionDialog by remember { mutableStateOf(false) }
 
     val jsonConfig = Json {
         ignoreUnknownKeys = true
@@ -235,6 +243,71 @@ fun SettingsScreen(
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 14.dp))
 
+            // AUDIO PERCEPTION & STT SETTINGS SECTION
+            Text(
+                text = "Восприятие звука и диктовка",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+            )
+            Text(
+                text = "Настройка микрофона, точности распознавания речи и исправление неверно оцифрованных слов:",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            OutlinedCard(
+                onClick = { showAudioPerceptionDialog = true },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primaryContainer),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.GraphicEq,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                text = "Качество восприятия звука",
+                                style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold)
+                            )
+                            Text(
+                                text = "Шумоподавление, чувствительность, словарь автозамены",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    Icon(
+                        imageVector = Icons.Filled.ChevronRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.outline
+                    )
+                }
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 14.dp))
+
             // BACKUP & RESTORE SECTION
             Text(
                 text = "Резервное копирование и перенос",
@@ -404,6 +477,13 @@ fun SettingsScreen(
             dismissButton = {
                 TextButton(onClick = { showImportDialog = false }) { Text("Отмена") }
             }
+        )
+    }
+
+    if (showAudioPerceptionDialog) {
+        AudioPerceptionSettingsDialog(
+            preferencesManager = preferencesManager,
+            onDismissRequest = { showAudioPerceptionDialog = false }
         )
     }
 }

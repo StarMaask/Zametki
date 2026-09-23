@@ -11,16 +11,19 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.example.data.preferences.UserPreferencesManager
 import java.util.Locale
 
 /**
  * Manager for smooth, uninterrupted continuous speech-to-text transcription.
  * - Suppresses system audio chimes/beeps during listening sessions.
  * - Uses generous silence timeouts to prevent premature cutoffs.
- * - Uses on-device speech recognition when available on Android 12+.
+ * - Selects best matching candidate and applies user word replacement dictionary.
+ * - Supports custom recognition languages and online high accuracy vs offline modes.
  * - Resiliently recovers from audio hardware and recognizer timeouts without infinite error loops.
  */
 class LectureTranscriptionManager(private val context: Context) {
@@ -40,6 +43,10 @@ class LectureTranscriptionManager(private val context: Context) {
     var partialHypothesis by mutableStateOf("")
         private set
 
+    var currentRmsDb by mutableFloatStateOf(0f)
+        private set
+
+    private val preferencesManager = UserPreferencesManager(context)
     private var speechRecognizer: SpeechRecognizer? = null
     private var onTextAppendedCallback: ((String) -> Unit)? = null
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -75,7 +82,9 @@ class LectureTranscriptionManager(private val context: Context) {
             isListening = true
         }
 
-        override fun onRmsChanged(rmsdB: Float) {}
+        override fun onRmsChanged(rmsdB: Float) {
+            currentRmsDb = rmsdB
+        }
 
         override fun onBufferReceived(buffer: ByteArray?) {}
 
@@ -118,10 +127,13 @@ class LectureTranscriptionManager(private val context: Context) {
             consecutiveErrors = 0
 
             val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-            val recognizedChunk = matches?.firstOrNull()?.trim()
-            if (!recognizedChunk.isNullOrBlank()) {
-                val formatted = formatRecognizedChunk(recognizedChunk)
-                onTextAppendedCallback?.invoke(formatted)
+            val wordReplacements = preferencesManager.getWordReplacementsSync()
+            val bestCandidate = SpeechPostProcessor.selectBestCandidate(matches, wordReplacements)?.trim()
+            if (!bestCandidate.isNullOrBlank()) {
+                val formatted = formatRecognizedChunk(bestCandidate)
+                if (formatted.isNotBlank()) {
+                    onTextAppendedCallback?.invoke(formatted)
+                }
             }
 
             if (isRecording && !isPaused) {
@@ -135,7 +147,9 @@ class LectureTranscriptionManager(private val context: Context) {
             val partialMatches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
             val partial = partialMatches?.firstOrNull()?.trim() ?: ""
             if (partial.isNotBlank()) {
-                partialHypothesis = partial
+                val enableSmartPunct = preferencesManager.isSmartPunctuationSync()
+                val wordReplacements = preferencesManager.getWordReplacementsSync()
+                partialHypothesis = SpeechPostProcessor.process(partial, enableSmartPunct, wordReplacements)
             }
         }
 
@@ -204,7 +218,8 @@ class LectureTranscriptionManager(private val context: Context) {
     }
 
     private fun createRecognizer(): SpeechRecognizer {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        val accuracyMode = preferencesManager.getSpeechAccuracySync()
+        if (accuracyMode == "prefer_offline" && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             try {
                 if (SpeechRecognizer.isOnDeviceRecognitionAvailable(context)) {
                     return SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
@@ -253,13 +268,25 @@ class LectureTranscriptionManager(private val context: Context) {
     private fun safeStartListening() {
         if (!isRecording || isPaused) return
         try {
+            val selectedLang = preferencesManager.getSpeechLanguageSync()
+            val accuracyMode = preferencesManager.getSpeechAccuracySync()
+            val langTag = if (selectedLang.isBlank() || selectedLang == "auto") {
+                Locale.getDefault().toLanguageTag()
+            } else {
+                selectedLang
+            }
+
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag())
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, Locale.getDefault().toLanguageTag())
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, langTag)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, langTag)
                 putExtra(RecognizerIntent.EXTRA_ONLY_RETURN_LANGUAGE_PREFERENCE, false)
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
+
+                if (accuracyMode == "prefer_offline") {
+                    putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+                }
 
                 // Generous timeouts to capture continuous speech without interrupting the speaker:
                 putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 300000L) // 5 minutes continuous session
@@ -309,8 +336,11 @@ class LectureTranscriptionManager(private val context: Context) {
 
     private fun formatRecognizedChunk(raw: String): String {
         if (raw.isBlank()) return ""
-        val capitalized = raw.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
-        val withPunctuation = if (!capitalized.endsWith(".") && !capitalized.endsWith("?") && !capitalized.endsWith("!")) {
+        val enableSmartPunct = preferencesManager.isSmartPunctuationSync()
+        val wordReplacements = preferencesManager.getWordReplacementsSync()
+        val processed = SpeechPostProcessor.process(raw, enableSmartPunct, wordReplacements)
+        val capitalized = processed.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
+        val withPunctuation = if (!capitalized.endsWith(".") && !capitalized.endsWith("?") && !capitalized.endsWith("!") && !capitalized.endsWith("\n") && !capitalized.endsWith("»")) {
             "$capitalized."
         } else {
             capitalized

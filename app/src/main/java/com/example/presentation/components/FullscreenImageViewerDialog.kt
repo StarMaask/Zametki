@@ -5,8 +5,10 @@ import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DocumentScanner
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -26,7 +28,9 @@ import coil.compose.AsyncImage
 fun FullscreenImageViewerDialog(
     imageUri: String,
     onDismissRequest: () -> Unit,
-    onDeleteImage: (() -> Unit)? = null
+    onDeleteImage: (() -> Unit)? = null,
+    onDigitizeHandwriting: (() -> Unit)? = null,
+    onExtractText: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     var scale by remember { mutableFloatStateOf(1f) }
@@ -98,6 +102,40 @@ fun FullscreenImageViewerDialog(
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (onExtractText != null) {
+                        IconButton(
+                            onClick = {
+                                onExtractText()
+                                onDismissRequest()
+                            },
+                            modifier = Modifier
+                                .size(44.dp)
+                                .background(Color.Black.copy(alpha = 0.6f), CircleShape)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.DocumentScanner,
+                                contentDescription = "Распознать текст с фото",
+                                tint = Color(0xFF81D4FA)
+                            )
+                        }
+                    }
+                    if (onDigitizeHandwriting != null) {
+                        IconButton(
+                            onClick = {
+                                onDigitizeHandwriting()
+                                onDismissRequest()
+                            },
+                            modifier = Modifier
+                                .size(44.dp)
+                                .background(Color.Black.copy(alpha = 0.6f), CircleShape)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.AutoFixHigh,
+                                contentDescription = "Оцифровать почерк с фото",
+                                tint = Color(0xFFFFD54F)
+                            )
+                        }
+                    }
                     if (onDeleteImage != null) {
                         IconButton(
                             onClick = {

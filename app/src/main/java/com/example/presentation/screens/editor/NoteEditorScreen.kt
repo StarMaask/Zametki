@@ -75,6 +75,8 @@ import com.example.presentation.components.PinVerifyDialog
 import com.example.presentation.components.ShareNoteBottomSheet
 import com.example.presentation.components.TooltipIconButton
 import com.example.presentation.components.VoiceSettingsDialog
+import com.example.presentation.components.AudioPerceptionSettingsDialog
+import com.example.util.SpeechPostProcessor
 import com.example.presentation.components.getFontFamily
 import com.example.presentation.components.getInkColor
 import com.example.presentation.components.getPaperColor
@@ -118,7 +120,9 @@ fun NoteEditorScreen(
     var showTextColorMenu by remember { mutableStateOf(false) }
     var showFontFamilyMenu by remember { mutableStateOf(false) }
     var showVoiceSettingsDialog by remember { mutableStateOf(false) }
+    var showAudioPerceptionDialog by remember { mutableStateOf(false) }
     var previewingImageUri by remember { mutableStateOf<String?>(null) }
+    var digitizerInitialImageUri by remember { mutableStateOf<String?>(null) }
     var showPinSetupDialog by remember { mutableStateOf(false) }
     var showPinUnlockDialog by remember { mutableStateOf(false) }
 
@@ -169,18 +173,6 @@ fun NoteEditorScreen(
         uri?.let { viewModel.addImage(it.toString()) }
     }
 
-    val audioPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) {
-            showAudioDialog = true
-        }
-    }
-
-    val notificationPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { _ -> }
-
     fun appendRecognizedText(spoken: String) {
         if (spoken.isBlank()) return
         val currentText = contentTextFieldValue.text
@@ -193,14 +185,43 @@ fun NoteEditorScreen(
         viewModel.onContentChange(newText)
     }
 
+    val ocrImagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            coroutineScope.launch {
+                Toast.makeText(context, "Распознавание текста с фото...", Toast.LENGTH_SHORT).show()
+                val extracted = com.example.util.HandwritingPhotoDigitizer.extractTextFromImage(context, uri)
+                appendRecognizedText(extracted)
+                Toast.makeText(context, "Текст с фото вставлен в заметку!", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    val audioPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            showAudioDialog = true
+        }
+    }
+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { _ -> }
+
     val speechRecognizerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == android.app.Activity.RESULT_OK) {
-            val spoken = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
-            if (!spoken.isNullOrBlank()) {
-                appendRecognizedText(spoken)
-                Toast.makeText(context, "Речь распознана: $spoken", Toast.LENGTH_SHORT).show()
+            val matches = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+            val replacements = preferencesManager.getWordReplacementsSync()
+            val smartPunct = preferencesManager.isSmartPunctuationSync()
+            val bestCandidate = SpeechPostProcessor.selectBestCandidate(matches, replacements)
+            if (!bestCandidate.isNullOrBlank()) {
+                val processed = SpeechPostProcessor.process(bestCandidate, smartPunct, replacements)
+                appendRecognizedText(processed)
+                Toast.makeText(context, "Речь оцифрована: $processed", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -224,9 +245,23 @@ fun NoteEditorScreen(
 
     fun startSpeechToText() {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            val selectedLang = preferencesManager.getSpeechLanguageSync()
+            val accuracyMode = preferencesManager.getSpeechAccuracySync()
+            val langTag = if (selectedLang.isBlank() || selectedLang == "auto") {
+                Locale.getDefault().toLanguageTag()
+            } else {
+                selectedLang
+            }
+
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag())
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, langTag)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, langTag)
+                putExtra(RecognizerIntent.EXTRA_ONLY_RETURN_LANGUAGE_PREFERENCE, false)
+                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
+                if (accuracyMode == "prefer_offline") {
+                    putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+                }
                 putExtra(RecognizerIntent.EXTRA_PROMPT, "Говорите — голос преобразуется в текст заметки...")
             }
             try {
@@ -456,6 +491,19 @@ fun NoteEditorScreen(
                                 onClick = {
                                     showTopMenu = false
                                     showVoiceSettingsDialog = true
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = {
+                                    Column {
+                                        Text("Качество восприятия звука")
+                                        Text("Настройка микрофона и словарь автозамены слов", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                },
+                                leadingIcon = { Icon(Icons.Filled.Tune, null, tint = MaterialTheme.colorScheme.primary) },
+                                onClick = {
+                                    showTopMenu = false
+                                    showAudioPerceptionDialog = true
                                 }
                             )
                             DropdownMenuItem(
@@ -873,6 +921,14 @@ fun NoteEditorScreen(
                             )
                         }
 
+                        // Качество восприятия звука и словарь оцифровки
+                        FilledTonalIconButton(
+                            onClick = { showAudioPerceptionDialog = true },
+                            modifier = Modifier.size(34.dp)
+                        ) {
+                            Icon(Icons.Filled.Tune, contentDescription = "Качество восприятия звука", modifier = Modifier.size(16.dp))
+                        }
+
                         // Озвучить текст (Text-to-Speech)
                         FilledTonalButton(
                             onClick = {
@@ -1003,6 +1059,32 @@ fun NoteEditorScreen(
                                     onClick = {
                                         showInsertMenu = false
                                         imagePickerLauncher.launch("image/*")
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Оцифровать почерк по фото (.jpg)", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                            Text("Загрузить фото листа алфавита для создания шрифта", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.AutoFixHigh, null, tint = MaterialTheme.colorScheme.primary) },
+                                    onClick = {
+                                        showInsertMenu = false
+                                        showFontDigitizerDialog = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Распознать текст с фото (OCR)")
+                                            Text("Извлечь рукописный или печатный текст в заметку", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.DocumentScanner, null, tint = MaterialTheme.colorScheme.primary) },
+                                    onClick = {
+                                        showInsertMenu = false
+                                        ocrImagePickerLauncher.launch("image/*")
                                     }
                                 )
                                 DropdownMenuItem(
@@ -1514,6 +1596,16 @@ fun NoteEditorScreen(
                             }
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 FilledTonalIconButton(
+                                    onClick = { showAudioPerceptionDialog = true },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Tune,
+                                        contentDescription = "Качество восприятия звука",
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                                FilledTonalIconButton(
                                     onClick = { lectureManager.togglePause() },
                                     modifier = Modifier.size(36.dp)
                                 ) {
@@ -1600,6 +1692,19 @@ fun NoteEditorScreen(
                                         .padding(8.dp),
                                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
+                                    FilledTonalIconButton(
+                                        onClick = {
+                                            digitizerInitialImageUri = uri
+                                            showFontDigitizerDialog = true
+                                        },
+                                        modifier = Modifier.size(34.dp),
+                                        colors = IconButtonDefaults.filledTonalIconButtonColors(
+                                            containerColor = Color.Black.copy(alpha = 0.65f),
+                                            contentColor = Color(0xFFFFD54F)
+                                        )
+                                    ) {
+                                        Icon(Icons.Filled.AutoFixHigh, contentDescription = "Оцифровать почерк с этого фото", modifier = Modifier.size(18.dp))
+                                    }
                                     FilledTonalIconButton(
                                         onClick = { previewingImageUri = uri },
                                         modifier = Modifier.size(34.dp),
@@ -2275,11 +2380,21 @@ fun NoteEditorScreen(
 
     if (showFontDigitizerDialog) {
         CustomFontDigitizerDialog(
-            onDismissRequest = { showFontDigitizerDialog = false },
+            initialImageUri = digitizerInitialImageUri,
+            onDismissRequest = {
+                showFontDigitizerDialog = false
+                digitizerInitialImageUri = null
+            },
             onFontApplied = { font ->
                 showFontDigitizerDialog = false
+                digitizerInitialImageUri = null
                 viewModel.onFontFormatChange(font)
                 Toast.makeText(context, "Применён шрифт: ${font.title}", Toast.LENGTH_SHORT).show()
+            },
+            onTextExtracted = { extractedText ->
+                val current = state.content
+                val updated = if (current.isBlank()) extractedText else "$current\n$extractedText"
+                viewModel.onContentChange(updated)
             }
         )
     }
@@ -2300,10 +2415,32 @@ fun NoteEditorScreen(
         )
     }
 
+    if (showAudioPerceptionDialog) {
+        AudioPerceptionSettingsDialog(
+            preferencesManager = preferencesManager,
+            onDismissRequest = { showAudioPerceptionDialog = false }
+        )
+    }
+
     if (previewingImageUri != null) {
+        val currentPreviewUri = previewingImageUri!!
         FullscreenImageViewerDialog(
-            imageUri = previewingImageUri!!,
+            imageUri = currentPreviewUri,
             onDismissRequest = { previewingImageUri = null },
+            onDigitizeHandwriting = {
+                digitizerInitialImageUri = currentPreviewUri
+                showFontDigitizerDialog = true
+            },
+            onExtractText = {
+                coroutineScope.launch {
+                    Toast.makeText(context, "Распознавание текста с фото...", Toast.LENGTH_SHORT).show()
+                    val text = com.example.util.HandwritingPhotoDigitizer.extractTextFromImage(context, Uri.parse(currentPreviewUri))
+                    val current = state.content
+                    val updated = if (current.isBlank()) text else "$current\n$text"
+                    viewModel.onContentChange(updated)
+                    Toast.makeText(context, "Текст перенесен в заметку!", Toast.LENGTH_SHORT).show()
+                }
+            },
             onDeleteImage = {
                 val uriToDelete = previewingImageUri
                 previewingImageUri = null

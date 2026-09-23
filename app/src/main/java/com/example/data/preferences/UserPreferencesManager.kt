@@ -28,9 +28,22 @@ class UserPreferencesManager(private val context: Context) {
     private val KEY_BIOMETRIC_ENABLED = booleanPreferencesKey("biometric_enabled")
     private val KEY_IS_GRID_LAYOUT = booleanPreferencesKey("is_grid_layout")
     private val KEY_CUSTOM_FONT_PATH = stringPreferencesKey("custom_font_path")
+    private val KEY_HANDWRITING_SLANT = androidx.datastore.preferences.core.floatPreferencesKey("handwriting_slant")
+    private val KEY_HANDWRITING_THICKNESS = androidx.datastore.preferences.core.floatPreferencesKey("handwriting_thickness")
+    private val KEY_HANDWRITING_SPACING = androidx.datastore.preferences.core.floatPreferencesKey("handwriting_spacing")
+    private val KEY_HANDWRITING_SAMPLE_PATH = stringPreferencesKey("handwriting_sample_path")
+    private val KEY_HANDWRITING_INK_COLOR = stringPreferencesKey("handwriting_ink_color")
     private val KEY_TTS_VOICE_NAME = stringPreferencesKey("tts_voice_name")
     private val KEY_TTS_PITCH = androidx.datastore.preferences.core.floatPreferencesKey("tts_pitch")
     private val KEY_TTS_RATE = androidx.datastore.preferences.core.floatPreferencesKey("tts_rate")
+
+    private val KEY_SPEECH_LANGUAGE = stringPreferencesKey("speech_language")
+    private val KEY_SPEECH_ACCURACY = stringPreferencesKey("speech_accuracy")
+    private val KEY_AUDIO_SOURCE = stringPreferencesKey("audio_source_profile")
+    private val KEY_MIC_SENSITIVITY = stringPreferencesKey("mic_sensitivity")
+    private val KEY_SMART_PUNCTUATION = booleanPreferencesKey("speech_smart_punctuation")
+    private val KEY_NOISE_SUPPRESSION = booleanPreferencesKey("speech_noise_suppression")
+    private val KEY_WORD_REPLACEMENTS = stringPreferencesKey("speech_word_replacements")
 
     private val syncPrefs = context.getSharedPreferences("user_settings_sync", Context.MODE_PRIVATE)
 
@@ -165,6 +178,7 @@ class UserPreferencesManager(private val context: Context) {
     }
 
     suspend fun setCustomFontPath(path: String?) {
+        syncPrefs.edit().putString("custom_font_path", path).apply()
         context.dataStore.edit { prefs ->
             if (path == null) {
                 prefs.remove(KEY_CUSTOM_FONT_PATH)
@@ -172,5 +186,154 @@ class UserPreferencesManager(private val context: Context) {
                 prefs[KEY_CUSTOM_FONT_PATH] = path
             }
         }
+    }
+
+    suspend fun saveHandwritingSettings(
+        slant: Float,
+        thickness: Float,
+        spacing: Float,
+        samplePath: String?,
+        inkColorHex: String?
+    ) {
+        syncPrefs.edit()
+            .putFloat("handwriting_slant", slant)
+            .putFloat("handwriting_thickness", thickness)
+            .putFloat("handwriting_spacing", spacing)
+            .putString("handwriting_sample_path", samplePath)
+            .putString("handwriting_ink_color", inkColorHex)
+            .apply()
+
+        context.dataStore.edit { prefs ->
+            prefs[KEY_HANDWRITING_SLANT] = slant
+            prefs[KEY_HANDWRITING_THICKNESS] = thickness
+            prefs[KEY_HANDWRITING_SPACING] = spacing
+            if (samplePath != null) prefs[KEY_HANDWRITING_SAMPLE_PATH] = samplePath
+            if (inkColorHex != null) prefs[KEY_HANDWRITING_INK_COLOR] = inkColorHex
+        }
+    }
+
+    fun getHandwritingSlantSync(): Float = syncPrefs.getFloat("handwriting_slant", 10f)
+    fun getHandwritingThicknessSync(): Float = syncPrefs.getFloat("handwriting_thickness", 4f)
+    fun getHandwritingSpacingSync(): Float = syncPrefs.getFloat("handwriting_spacing", 1.2f)
+    fun getHandwritingSamplePathSync(): String? = syncPrefs.getString("handwriting_sample_path", null)
+    fun getHandwritingInkColorSync(): String? = syncPrefs.getString("handwriting_ink_color", null)
+
+    val speechLanguageFlow: Flow<String> = context.dataStore.data.map { prefs ->
+        prefs[KEY_SPEECH_LANGUAGE] ?: syncPrefs.getString("speech_language", "auto") ?: "auto"
+    }
+
+    val speechAccuracyFlow: Flow<String> = context.dataStore.data.map { prefs ->
+        prefs[KEY_SPEECH_ACCURACY] ?: syncPrefs.getString("speech_accuracy", "online_high_accuracy") ?: "online_high_accuracy"
+    }
+
+    val audioSourceProfileFlow: Flow<String> = context.dataStore.data.map { prefs ->
+        prefs[KEY_AUDIO_SOURCE] ?: syncPrefs.getString("audio_source_profile", "VOICE_RECOGNITION") ?: "VOICE_RECOGNITION"
+    }
+
+    val micSensitivityFlow: Flow<String> = context.dataStore.data.map { prefs ->
+        prefs[KEY_MIC_SENSITIVITY] ?: syncPrefs.getString("mic_sensitivity", "high") ?: "high"
+    }
+
+    val smartPunctuationFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[KEY_SMART_PUNCTUATION] ?: syncPrefs.getBoolean("speech_smart_punctuation", true)
+    }
+
+    val noiseSuppressionFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[KEY_NOISE_SUPPRESSION] ?: syncPrefs.getBoolean("speech_noise_suppression", true)
+    }
+
+    val wordReplacementsFlow: Flow<Map<String, String>> = context.dataStore.data.map { prefs ->
+        val json = prefs[KEY_WORD_REPLACEMENTS] ?: syncPrefs.getString("speech_word_replacements", "{}") ?: "{}"
+        parseWordReplacementsJson(json)
+    }
+
+    fun getSpeechLanguageSync(): String = syncPrefs.getString("speech_language", "auto") ?: "auto"
+    fun getSpeechAccuracySync(): String = syncPrefs.getString("speech_accuracy", "online_high_accuracy") ?: "online_high_accuracy"
+    fun getAudioSourceProfileSync(): String = syncPrefs.getString("audio_source_profile", "VOICE_RECOGNITION") ?: "VOICE_RECOGNITION"
+    fun getMicSensitivitySync(): String = syncPrefs.getString("mic_sensitivity", "high") ?: "high"
+    fun isSmartPunctuationSync(): Boolean = syncPrefs.getBoolean("speech_smart_punctuation", true)
+    fun isNoiseSuppressionSync(): Boolean = syncPrefs.getBoolean("speech_noise_suppression", true)
+
+    fun getWordReplacementsSync(): Map<String, String> {
+        val json = syncPrefs.getString("speech_word_replacements", "{}") ?: "{}"
+        return parseWordReplacementsJson(json)
+    }
+
+    private fun parseWordReplacementsJson(raw: String): Map<String, String> {
+        return try {
+            val result = LinkedHashMap<String, String>()
+            if (raw.isBlank() || raw == "{}") return result
+            val jsonObject = org.json.JSONObject(raw)
+            val keys = jsonObject.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                result[key] = jsonObject.optString(key, "")
+            }
+            result
+        } catch (_: Exception) {
+            emptyMap()
+        }
+    }
+
+    private fun serializeWordReplacements(map: Map<String, String>): String {
+        return try {
+            val jsonObject = org.json.JSONObject()
+            for ((k, v) in map) {
+                if (k.isNotBlank() && v.isNotBlank()) {
+                    jsonObject.put(k.trim(), v.trim())
+                }
+            }
+            jsonObject.toString()
+        } catch (_: Exception) {
+            "{}"
+        }
+    }
+
+    suspend fun setSpeechLanguage(lang: String) {
+        syncPrefs.edit().putString("speech_language", lang).apply()
+        context.dataStore.edit { it[KEY_SPEECH_LANGUAGE] = lang }
+    }
+
+    suspend fun setSpeechAccuracy(mode: String) {
+        syncPrefs.edit().putString("speech_accuracy", mode).apply()
+        context.dataStore.edit { it[KEY_SPEECH_ACCURACY] = mode }
+    }
+
+    suspend fun setAudioSourceProfile(profile: String) {
+        syncPrefs.edit().putString("audio_source_profile", profile).apply()
+        context.dataStore.edit { it[KEY_AUDIO_SOURCE] = profile }
+    }
+
+    suspend fun setMicSensitivity(sensitivity: String) {
+        syncPrefs.edit().putString("mic_sensitivity", sensitivity).apply()
+        context.dataStore.edit { it[KEY_MIC_SENSITIVITY] = sensitivity }
+    }
+
+    suspend fun setSmartPunctuation(enabled: Boolean) {
+        syncPrefs.edit().putBoolean("speech_smart_punctuation", enabled).apply()
+        context.dataStore.edit { it[KEY_SMART_PUNCTUATION] = enabled }
+    }
+
+    suspend fun setNoiseSuppression(enabled: Boolean) {
+        syncPrefs.edit().putBoolean("speech_noise_suppression", enabled).apply()
+        context.dataStore.edit { it[KEY_NOISE_SUPPRESSION] = enabled }
+    }
+
+    suspend fun setWordReplacements(map: Map<String, String>) {
+        val json = serializeWordReplacements(map)
+        syncPrefs.edit().putString("speech_word_replacements", json).apply()
+        context.dataStore.edit { it[KEY_WORD_REPLACEMENTS] = json }
+    }
+
+    suspend fun addWordReplacement(wrongWord: String, correctWord: String) {
+        val current = LinkedHashMap(getWordReplacementsSync())
+        current[wrongWord.trim()] = correctWord.trim()
+        setWordReplacements(current)
+    }
+
+    suspend fun removeWordReplacement(wrongWord: String) {
+        val current = LinkedHashMap(getWordReplacementsSync())
+        current.remove(wrongWord.trim())
+        setWordReplacements(current)
     }
 }

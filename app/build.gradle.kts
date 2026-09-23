@@ -51,6 +51,7 @@ dependencies {
     ksp(libs.androidx.room.compiler)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.coil.compose)
+    implementation(libs.mlkit.text.recognition)
 
     testImplementation(libs.junit)
     debugImplementation(libs.androidx.compose.ui.tooling)
