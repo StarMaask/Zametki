@@ -79,6 +79,10 @@ fun CustomFontDigitizerDialog(
     val customFontFile = remember { File(context.filesDir, "custom_fonts/active_font.ttf") }
     var hasCustomFont by remember { mutableStateOf(customFontFile.exists() && customFontFile.length() > 0) }
 
+    var previewSampleText by remember {
+        mutableStateOf("Привет! Это мой оцифрованный рукописный почерк.")
+    }
+
     // Auto-analyze initialImageUri if provided
     LaunchedEffect(initialImageUri) {
         if (initialImageUri != null && selectedPhotoUri != null && analysisResult == null) {
@@ -91,6 +95,7 @@ fun CustomFontDigitizerDialog(
                 penSlant = analysis.slantAngle
                 letterSpacing = analysis.letterSpacing
                 hasCustomFont = true
+                onFontApplied(NoteFontFamily.CUSTOM_DIGITIZED)
             }
         }
     }
@@ -111,7 +116,8 @@ fun CustomFontDigitizerDialog(
                     penSlant = analysis.slantAngle
                     letterSpacing = analysis.letterSpacing
                     hasCustomFont = true
-                    Toast.makeText(context, "Алфавит распознан! Почерк успешно оцифрован", Toast.LENGTH_SHORT).show()
+                    onFontApplied(NoteFontFamily.CUSTOM_DIGITIZED)
+                    Toast.makeText(context, "Алфавит распознан! Почерк оцифрован и активирован", Toast.LENGTH_SHORT).show()
                 }.onFailure { error ->
                     Toast.makeText(context, "Ошибка обработки фото: ${error.message}", Toast.LENGTH_LONG).show()
                 }
@@ -460,31 +466,56 @@ fun CustomFontDigitizerDialog(
 
                         Spacer(modifier = Modifier.height(10.dp))
 
-                        // Live Preview Card
+                        // Live Preview Card with interactive text testing
                         Card(
                             modifier = Modifier.fillMaxWidth(),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f))
                         ) {
                             Column(modifier = Modifier.padding(12.dp)) {
-                                Text(
-                                    text = "Предпросмотр оцифрованного почерка:",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = "Предпросмотр почерка:",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    if (hasCustomFont || analysisResult != null) {
+                                        Surface(
+                                            color = MaterialTheme.colorScheme.primary,
+                                            shape = RoundedCornerShape(8.dp)
+                                        ) {
+                                            Text(
+                                                text = "✓ Почерк активен",
+                                                color = MaterialTheme.colorScheme.onPrimary,
+                                                fontSize = 10.sp,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(6.dp))
                                 val digitizedFont = if (hasCustomFont) {
                                     NoteFontHelper.getFontFamily(context, NoteFontFamily.CUSTOM_DIGITIZED)
                                 } else {
                                     NoteFontHelper.getFontFamily(context, NoteFontFamily.HANDWRITING_MARCK)
                                 }
-                                Text(
-                                    text = "Съешь ещё этих мягких французских булок, да выпей же чаю. 1234567890\nМой оцифрованный почерк готов для всех заметок!",
-                                    fontFamily = digitizedFont,
-                                    fontSize = 18.sp,
-                                    lineHeight = 26.sp,
-                                    letterSpacing = (letterSpacing * 0.5f).sp,
-                                    color = MaterialTheme.colorScheme.onSurface
+
+                                OutlinedTextField(
+                                    value = previewSampleText,
+                                    onValueChange = { previewSampleText = it },
+                                    label = { Text("Попробуйте ввести русский текст своим почерком:", fontSize = 11.sp) },
+                                    textStyle = LocalTextStyle.current.copy(
+                                        fontFamily = digitizedFont,
+                                        fontSize = 19.sp,
+                                        lineHeight = 27.sp,
+                                        letterSpacing = (letterSpacing * 0.5f).sp,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    ),
+                                    modifier = Modifier.fillMaxWidth()
                                 )
                             }
                         }
@@ -503,7 +534,7 @@ fun CustomFontDigitizerDialog(
                     ) {
                         Icon(Icons.Filled.Check, null)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Применить мой оцифрованный почерк")
+                        Text("Применить и перейти к заметке")
                     }
 
                 } else if (selectedTab == 1) {

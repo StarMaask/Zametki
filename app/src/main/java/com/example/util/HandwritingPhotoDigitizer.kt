@@ -117,6 +117,7 @@ object HandwritingPhotoDigitizer {
                 inkColorHex = metrics.inkColorHex
             )
             prefs.setCustomFontPath(activeFontFile.absolutePath)
+            prefs.setDefaultNoteFontSync(com.example.domain.model.NoteFontFamily.CUSTOM_DIGITIZED.id)
 
             val styleDesc = if (metrics.isCursiveFlow) "Курсивный скорописный (${slantAngle.toInt()}°)" else "Живой авторский (${slantAngle.toInt()}°)"
 
@@ -296,10 +297,16 @@ object HandwritingPhotoDigitizer {
     }
 
     private fun copyRawFontResourceToFile(context: Context, resId: Int, targetFile: File) {
-        context.resources.openRawResource(resId).use { input ->
-            FileOutputStream(targetFile).use { output ->
-                input.copyTo(output)
+        try {
+            targetFile.parentFile?.mkdirs()
+            if (targetFile.exists()) targetFile.delete()
+            context.resources.openRawResource(resId).use { input ->
+                FileOutputStream(targetFile).use { output ->
+                    input.copyTo(output)
+                }
             }
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 

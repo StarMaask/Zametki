@@ -2019,12 +2019,12 @@ fun NoteEditorScreen(
                                                 MaterialTheme.typography.bodyLarge.copy(
                                                     color = inkColor.copy(alpha = 0.45f),
                                                     textDecoration = TextDecoration.LineThrough,
-                                                    fontFamily = pageFontFamily
+                                                    fontFamily = activeFontFamily
                                                 )
                                             } else {
                                                 MaterialTheme.typography.bodyLarge.copy(
                                                     color = inkColor,
-                                                    fontFamily = pageFontFamily
+                                                    fontFamily = activeFontFamily
                                                 )
                                             },
                                             cursorBrush = SolidColor(if (state.pageFormat == PageFormat.BOOK) NotebookPalette.BookBookmark else if (isDarkPaper) Color.White else MaterialTheme.colorScheme.primary),
@@ -2047,7 +2047,7 @@ fun NoteEditorScreen(
                                                             text = "Пункт списка...",
                                                             style = MaterialTheme.typography.bodyLarge.copy(
                                                                 color = placeholderColor,
-                                                                fontFamily = pageFontFamily
+                                                                fontFamily = activeFontFamily
                                                             )
                                                         )
                                                     }
@@ -2386,10 +2386,8 @@ fun NoteEditorScreen(
                 digitizerInitialImageUri = null
             },
             onFontApplied = { font ->
-                showFontDigitizerDialog = false
-                digitizerInitialImageUri = null
                 viewModel.onFontFormatChange(font)
-                Toast.makeText(context, "Применён шрифт: ${font.title}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Применён почерк: ${font.title}", Toast.LENGTH_SHORT).show()
             },
             onTextExtracted = { extractedText ->
                 val current = state.content

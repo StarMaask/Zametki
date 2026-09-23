@@ -48,17 +48,29 @@ object NoteFontHelper {
                 FontFamily.Monospace
             }
             NoteFontFamily.CUSTOM_DIGITIZED -> {
-                val customFile = customFontPath?.let { File(it) }
-                    ?: File(context.filesDir, "custom_fonts/active_font.ttf")
-                if (customFile.exists() && customFile.length() > 0) {
-                    try {
-                        val typeface = Typeface.createFromFile(customFile)
-                        FontFamily(typeface)
-                    } catch (_: Exception) {
-                        getFontFamily(context, NoteFontFamily.HANDWRITING_CAVEAT)
-                    }
+                val prefs = com.example.data.preferences.UserPreferencesManager(context)
+                val slant = prefs.getHandwritingSlantSync()
+                val fallbackFamily = if (slant > 4f) {
+                    getFontFamily(context, NoteFontFamily.HANDWRITING_MARCK)
                 } else {
                     getFontFamily(context, NoteFontFamily.HANDWRITING_CAVEAT)
+                }
+
+                val customFile = customFontPath?.let { File(it) }
+                    ?: File(context.filesDir, "custom_fonts/active_font.ttf")
+                if (customFile.exists() && customFile.length() > 1024) {
+                    try {
+                        val typeface = Typeface.createFromFile(customFile)
+                        if (typeface != null) {
+                            FontFamily(typeface)
+                        } else {
+                            fallbackFamily
+                        }
+                    } catch (_: Exception) {
+                        fallbackFamily
+                    }
+                } else {
+                    fallbackFamily
                 }
             }
         }
@@ -88,16 +100,24 @@ object NoteFontHelper {
                 Typeface.MONOSPACE
             }
             NoteFontFamily.CUSTOM_DIGITIZED -> {
-                val customFile = customFontPath?.let { File(it) }
-                    ?: File(context.filesDir, "custom_fonts/active_font.ttf")
-                if (customFile.exists() && customFile.length() > 0) {
-                    try {
-                        Typeface.createFromFile(customFile)
-                    } catch (_: Exception) {
-                        getTypeface(context, NoteFontFamily.HANDWRITING_CAVEAT)
-                    }
+                val prefs = com.example.data.preferences.UserPreferencesManager(context)
+                val slant = prefs.getHandwritingSlantSync()
+                val fallbackTypeface = if (slant > 4f) {
+                    getTypeface(context, NoteFontFamily.HANDWRITING_MARCK)
                 } else {
                     getTypeface(context, NoteFontFamily.HANDWRITING_CAVEAT)
+                }
+
+                val customFile = customFontPath?.let { File(it) }
+                    ?: File(context.filesDir, "custom_fonts/active_font.ttf")
+                if (customFile.exists() && customFile.length() > 1024) {
+                    try {
+                        Typeface.createFromFile(customFile) ?: fallbackTypeface
+                    } catch (_: Exception) {
+                        fallbackTypeface
+                    }
+                } else {
+                    fallbackTypeface
                 }
             }
         }

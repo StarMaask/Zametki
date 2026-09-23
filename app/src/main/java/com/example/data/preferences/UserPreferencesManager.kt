@@ -218,6 +218,11 @@ class UserPreferencesManager(private val context: Context) {
     fun getHandwritingSamplePathSync(): String? = syncPrefs.getString("handwriting_sample_path", null)
     fun getHandwritingInkColorSync(): String? = syncPrefs.getString("handwriting_ink_color", null)
 
+    fun getDefaultNoteFontSync(): String = syncPrefs.getString("default_note_font", "DEFAULT") ?: "DEFAULT"
+    fun setDefaultNoteFontSync(fontId: String) {
+        syncPrefs.edit().putString("default_note_font", fontId).apply()
+    }
+
     val speechLanguageFlow: Flow<String> = context.dataStore.data.map { prefs ->
         prefs[KEY_SPEECH_LANGUAGE] ?: syncPrefs.getString("speech_language", "auto") ?: "auto"
     }
