@@ -189,7 +189,7 @@ class MainActivity : FragmentActivity() {
                                     try { NoteTemplate.valueOf(it) } catch (_: Exception) { null }
                                 }
                                 val viewModel = remember(noteId, templateName) {
-                                    NoteEditorViewModel(repository, noteId, initialTemplate)
+                                    NoteEditorViewModel(repository, noteId, initialTemplate, preferencesManager)
                                 }
                                 NoteEditorScreen(
                                     viewModel = viewModel,

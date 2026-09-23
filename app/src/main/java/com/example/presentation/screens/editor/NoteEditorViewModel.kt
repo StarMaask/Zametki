@@ -94,10 +94,25 @@ data class NoteEditorUiState(
 class NoteEditorViewModel(
     private val repository: NoteRepository,
     private val initialNoteId: Long,
-    initialTemplate: NoteTemplate? = null
+    initialTemplate: NoteTemplate? = null,
+    private val preferencesManager: com.example.data.preferences.UserPreferencesManager? = null
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(NoteEditorUiState(noteId = initialNoteId))
+    private val _uiState = MutableStateFlow(
+        NoteEditorUiState(
+            noteId = initialNoteId,
+            fontFormat = if (initialNoteId <= 0) {
+                preferencesManager?.getDefaultNoteFontSync() ?: com.example.domain.model.NoteFontFamily.DEFAULT.id
+            } else {
+                com.example.domain.model.NoteFontFamily.DEFAULT.id
+            },
+            textColorHex = if (initialNoteId <= 0) {
+                preferencesManager?.getHandwritingInkColorSync() ?: "#1C1B1F"
+            } else {
+                "#1C1B1F"
+            }
+        )
+    )
     val uiState: StateFlow<NoteEditorUiState> = _uiState.asStateFlow()
 
     private val undoStack = mutableListOf<String>()
@@ -457,7 +472,9 @@ class NoteEditorViewModel(
                     audioUri = state.audioUri,
                     folder = state.folder,
                     isLocked = state.isLocked,
-                    pageFormat = state.pageFormat.name
+                    pageFormat = state.pageFormat.name,
+                    fontFormat = state.fontFormat,
+                    textColorHex = state.textColorHex
                 )
 
                 val savedId = if (state.noteId > 0) {
