@@ -28,11 +28,35 @@ class UserPreferencesManager(private val context: Context) {
     private val KEY_BIOMETRIC_ENABLED = booleanPreferencesKey("biometric_enabled")
     private val KEY_IS_GRID_LAYOUT = booleanPreferencesKey("is_grid_layout")
     private val KEY_CUSTOM_FONT_PATH = stringPreferencesKey("custom_font_path")
+    private val KEY_TTS_VOICE_NAME = stringPreferencesKey("tts_voice_name")
+    private val KEY_TTS_PITCH = androidx.datastore.preferences.core.floatPreferencesKey("tts_pitch")
+    private val KEY_TTS_RATE = androidx.datastore.preferences.core.floatPreferencesKey("tts_rate")
 
     private val syncPrefs = context.getSharedPreferences("user_settings_sync", Context.MODE_PRIVATE)
 
     fun isGridLayoutSync(): Boolean {
         return syncPrefs.getBoolean("is_grid_layout", true)
+    }
+
+    fun getPinCodeSync(): String {
+        return syncPrefs.getString("pin_code", null) ?: "0000"
+    }
+
+    fun setPinCodeSync(pin: String) {
+        syncPrefs.edit().putString("pin_code", pin).apply()
+    }
+
+    fun hasCustomPinSetSync(): Boolean {
+        return syncPrefs.contains("pin_code")
+    }
+
+    fun isPinEnabledSync(): Boolean {
+        return syncPrefs.getBoolean("pin_enabled", false)
+    }
+
+    fun verifyPinSync(input: String): Boolean {
+        val stored = getPinCodeSync()
+        return input == stored
     }
 
     val fontSizeFlow: Flow<FontSizeScale> = context.dataStore.data.map { prefs ->
@@ -66,7 +90,7 @@ class UserPreferencesManager(private val context: Context) {
     }
 
     val isGridLayoutFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
-        prefs[KEY_IS_GRID_LAYOUT] ?: true
+        prefs[KEY_IS_GRID_LAYOUT] ?: syncPrefs.getBoolean("is_grid_layout", true)
     }
 
     val customFontPathFlow: Flow<String?> = context.dataStore.data.map { prefs ->
@@ -86,14 +110,40 @@ class UserPreferencesManager(private val context: Context) {
     }
 
     suspend fun setPinCode(pin: String) {
+        syncPrefs.edit().putString("pin_code", pin).apply()
         context.dataStore.edit { prefs ->
             prefs[KEY_PIN_CODE] = pin
         }
     }
 
     suspend fun setPinEnabled(enabled: Boolean) {
+        syncPrefs.edit().putBoolean("pin_enabled", enabled).apply()
         context.dataStore.edit { prefs ->
             prefs[KEY_PIN_ENABLED] = enabled
+        }
+    }
+
+    val ttsVoiceNameFlow: Flow<String?> = context.dataStore.data.map { prefs ->
+        prefs[KEY_TTS_VOICE_NAME]
+    }
+
+    val ttsPitchFlow: Flow<Float> = context.dataStore.data.map { prefs ->
+        prefs[KEY_TTS_PITCH] ?: 1.0f
+    }
+
+    val ttsRateFlow: Flow<Float> = context.dataStore.data.map { prefs ->
+        prefs[KEY_TTS_RATE] ?: 1.0f
+    }
+
+    suspend fun setTtsSettings(voiceName: String?, pitch: Float, rate: Float) {
+        context.dataStore.edit { prefs ->
+            if (voiceName != null) {
+                prefs[KEY_TTS_VOICE_NAME] = voiceName
+            } else {
+                prefs.remove(KEY_TTS_VOICE_NAME)
+            }
+            prefs[KEY_TTS_PITCH] = pitch
+            prefs[KEY_TTS_RATE] = rate
         }
     }
 
@@ -103,8 +153,12 @@ class UserPreferencesManager(private val context: Context) {
         }
     }
 
+    fun setGridLayoutSync(isGrid: Boolean) {
+        syncPrefs.edit().putBoolean("is_grid_layout", isGrid).commit()
+    }
+
     suspend fun setGridLayout(isGrid: Boolean) {
-        syncPrefs.edit().putBoolean("is_grid_layout", isGrid).apply()
+        syncPrefs.edit().putBoolean("is_grid_layout", isGrid).commit()
         context.dataStore.edit { prefs ->
             prefs[KEY_IS_GRID_LAYOUT] = isGrid
         }

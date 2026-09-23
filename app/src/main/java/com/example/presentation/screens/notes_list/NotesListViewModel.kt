@@ -146,6 +146,7 @@ class NotesListViewModel(
     fun toggleLayout() {
         val next = !_uiState.value.isGridLayout
         _uiState.update { it.copy(isGridLayout = next) }
+        preferencesManager.setGridLayoutSync(next)
         viewModelScope.launch {
             preferencesManager.setGridLayout(next)
         }
@@ -233,6 +234,17 @@ class NotesListViewModel(
             val toUpdate = _uiState.value.notes.filter { selected.contains(it.id) }
             toUpdate.forEach { note ->
                 repository.updateNote(note.copy(folder = folderName, updatedAt = System.currentTimeMillis()))
+            }
+            clearSelection()
+        }
+    }
+
+    fun lockSelectedNotes(lock: Boolean) {
+        viewModelScope.launch {
+            val selected = _uiState.value.selectedNoteIds
+            val toUpdate = _uiState.value.notes.filter { selected.contains(it.id) }
+            toUpdate.forEach { note ->
+                repository.updateNote(note.copy(isLocked = lock, updatedAt = System.currentTimeMillis()))
             }
             clearSelection()
         }

@@ -47,6 +47,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -62,19 +63,25 @@ import com.example.presentation.components.AudioPlaybackCard
 import com.example.presentation.components.AudioRecordDialog
 import com.example.presentation.components.CustomFontDigitizerDialog
 import com.example.presentation.components.DrawingCanvasDialog
+import com.example.presentation.components.FullscreenImageViewerDialog
 import com.example.presentation.components.MarkdownRenderer
 import com.example.presentation.components.NotebookPalette
 import com.example.presentation.components.NotebookPaperCanvas
 import com.example.presentation.components.NoteInfoDialog
 import com.example.presentation.components.NoteTemplateDialog
 import com.example.presentation.components.PageFormatSelectorDialog
+import com.example.presentation.components.PinSetupDialog
+import com.example.presentation.components.PinVerifyDialog
 import com.example.presentation.components.ShareNoteBottomSheet
 import com.example.presentation.components.TooltipIconButton
+import com.example.presentation.components.VoiceSettingsDialog
 import com.example.presentation.components.getFontFamily
 import com.example.presentation.components.getInkColor
 import com.example.presentation.components.getPaperColor
 import com.example.presentation.components.getPlaceholderColor
+import com.example.data.preferences.UserPreferencesManager
 import com.example.ui.theme.NoteColors
+import com.example.util.LectureTranscriptionManager
 import com.example.util.NoteFontHelper
 import com.example.util.NoteSpeechManager
 import com.example.util.RichMarkdownVisualTransformation
@@ -92,6 +99,7 @@ fun NoteEditorScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
 
     var showColorPicker by remember { mutableStateOf(false) }
     var showAudioDialog by remember { mutableStateOf(false) }
@@ -109,6 +117,37 @@ fun NoteEditorScreen(
     var showFontDigitizerDialog by remember { mutableStateOf(false) }
     var showTextColorMenu by remember { mutableStateOf(false) }
     var showFontFamilyMenu by remember { mutableStateOf(false) }
+    var showVoiceSettingsDialog by remember { mutableStateOf(false) }
+    var previewingImageUri by remember { mutableStateOf<String?>(null) }
+    var showPinSetupDialog by remember { mutableStateOf(false) }
+    var showPinUnlockDialog by remember { mutableStateOf(false) }
+
+    val preferencesManager = remember { UserPreferencesManager(context) }
+    val speechManager = remember { NoteSpeechManager(context) }
+    val lectureManager = remember { LectureTranscriptionManager(context) }
+
+    LaunchedEffect(Unit) {
+        preferencesManager.ttsVoiceNameFlow.collect { voiceName ->
+            speechManager.setVoice(voiceName)
+        }
+    }
+    LaunchedEffect(Unit) {
+        preferencesManager.ttsPitchFlow.collect { pitch ->
+            speechManager.setPitch(pitch)
+        }
+    }
+    LaunchedEffect(Unit) {
+        preferencesManager.ttsRateFlow.collect { rate ->
+            speechManager.setRate(rate)
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            lectureManager.release()
+            speechManager.release()
+        }
+    }
 
     var contentTextFieldValue by remember {
         mutableStateOf(TextFieldValue(state.content, TextRange(state.content.length)))
@@ -142,38 +181,41 @@ fun NoteEditorScreen(
         contract = ActivityResultContracts.RequestPermission()
     ) { _ -> }
 
+    fun appendRecognizedText(spoken: String) {
+        if (spoken.isBlank()) return
+        val currentText = contentTextFieldValue.text
+        val selection = contentTextFieldValue.selection
+        val insertPos = if (selection.start in 0..currentText.length) selection.start else currentText.length
+        val separator = if (insertPos > 0 && !currentText[insertPos - 1].isWhitespace()) " " else ""
+        val newText = currentText.substring(0, insertPos) + separator + spoken + " " + currentText.substring(insertPos)
+        val newCursor = insertPos + separator.length + spoken.length + 1
+        contentTextFieldValue = TextFieldValue(newText, TextRange(newCursor))
+        viewModel.onContentChange(newText)
+    }
+
     val speechRecognizerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == android.app.Activity.RESULT_OK) {
             val spoken = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
             if (!spoken.isNullOrBlank()) {
-                val selection = contentTextFieldValue.selection
-                val text = contentTextFieldValue.text
-                val insertPos = selection.start
-                val separator = if (insertPos > 0 && !text[insertPos - 1].isWhitespace()) " " else ""
-                val newText = text.substring(0, insertPos) + separator + spoken + " " + text.substring(insertPos)
-                val newCursor = insertPos + separator.length + spoken.length + 1
-                contentTextFieldValue = TextFieldValue(newText, TextRange(newCursor))
-                viewModel.onContentChange(newText)
+                appendRecognizedText(spoken)
                 Toast.makeText(context, "Речь распознана: $spoken", Toast.LENGTH_SHORT).show()
             }
         }
     }
 
+    var startSpeechToTextAction: () -> Unit = {}
+
     val recordAudioPermissionForSpeechLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         if (isGranted) {
-            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag())
-                putExtra(RecognizerIntent.EXTRA_PROMPT, "Говорите — голос преобразуется в текст заметки...")
+            val started = lectureManager.startRecording { chunk ->
+                appendRecognizedText(chunk)
             }
-            try {
-                speechRecognizerLauncher.launch(intent)
-            } catch (_: Exception) {
-                Toast.makeText(context, "Распознавание речи недоступно на данном устройстве", Toast.LENGTH_SHORT).show()
+            if (!started) {
+                startSpeechToTextAction()
             }
         } else {
             Toast.makeText(context, "Требуется доступ к микрофону для распознавания речи", Toast.LENGTH_SHORT).show()
@@ -197,10 +239,22 @@ fun NoteEditorScreen(
         }
     }
 
-    val speechManager = remember { NoteSpeechManager(context) }
-    DisposableEffect(Unit) {
-        onDispose {
-            speechManager.release()
+    startSpeechToTextAction = { startSpeechToText() }
+
+    fun toggleLectureRecording() {
+        if (lectureManager.isRecording) {
+            lectureManager.stopRecording()
+        } else {
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                val started = lectureManager.startRecording { chunk ->
+                    appendRecognizedText(chunk)
+                }
+                if (!started) {
+                    startSpeechToText()
+                }
+            } else {
+                recordAudioPermissionForSpeechLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            }
         }
     }
 
@@ -332,7 +386,7 @@ fun NoteEditorScreen(
                     )
                 },
                 actions = {
-                    // Save Button
+                    // 1. Save Button
                     TooltipIconButton(
                         onClick = {
                             viewModel.saveNote(context) {
@@ -345,7 +399,7 @@ fun NoteEditorScreen(
                         tint = MaterialTheme.colorScheme.primary
                     )
 
-                    // Markdown Preview / Edit Mode Toggle
+                    // 2. Markdown Preview / Edit Mode Toggle
                     TooltipIconButton(
                         onClick = { viewModel.toggleMarkdownPreview() },
                         icon = if (state.isMarkdownPreview) Icons.Filled.Edit else Icons.Filled.Visibility,
@@ -353,22 +407,7 @@ fun NoteEditorScreen(
                         tint = if (state.isMarkdownPreview) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                     )
 
-                    // Text-to-Speech (Озвучить заметку вслух)
-                    TooltipIconButton(
-                        onClick = {
-                            if (speechManager.isSpeaking) {
-                                speechManager.stop()
-                            } else {
-                                val fullText = if (state.content.isNotBlank()) state.content else state.title
-                                speechManager.speak(fullText, state.title)
-                            }
-                        },
-                        icon = if (speechManager.isSpeaking) Icons.Filled.VolumeUp else Icons.Filled.VolumeMute,
-                        tooltip = if (speechManager.isSpeaking) "Остановить чтение вслух" else "Озвучить заметку (звук в тексте)",
-                        tint = if (speechManager.isSpeaking) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                    )
-
-                    // Share Button (Sheet with text, photo page, pdf, txt, copy)
+                    // 3. Share Button
                     TooltipIconButton(
                         onClick = { showShareSheet = true },
                         icon = Icons.Filled.Share,
@@ -376,55 +415,7 @@ fun NoteEditorScreen(
                         tint = MaterialTheme.colorScheme.primary
                     )
 
-                    // Page Format Button (Book / Ruled / Grid / Kraft / Vintage / etc.)
-                    TooltipIconButton(
-                        onClick = { showPageFormatDialog = true },
-                        icon = when (state.pageFormat) {
-                            PageFormat.BOOK -> Icons.Filled.AutoStories
-                            PageFormat.RULED -> Icons.Filled.FormatAlignJustify
-                            PageFormat.GRID -> Icons.Filled.BorderAll
-                            PageFormat.KRAFT -> Icons.Filled.Style
-                            PageFormat.VINTAGE -> Icons.Filled.Bookmark
-                            PageFormat.MIDNIGHT -> Icons.Filled.DarkMode
-                            PageFormat.BLUEPRINT -> Icons.Filled.Edit
-                            PageFormat.BLANK -> Icons.Filled.Description
-                        },
-                        tooltip = "Формат листа: ${state.pageFormat.title}",
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-
-                    // Pin Button
-                    TooltipIconButton(
-                        onClick = { viewModel.togglePin() },
-                        icon = if (state.isPinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
-                        tooltip = if (state.isPinned) "Открепить заметку" else "Закрепить вверху списка",
-                        tint = if (state.isPinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                    )
-
-                    // Reminder Button
-                    TooltipIconButton(
-                        onClick = {
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                                }
-                            }
-                            val calendar = Calendar.getInstance()
-                            DatePickerDialog(context, { _, year, month, dayOfMonth ->
-                                TimePickerDialog(context, { _, hourOfDay, minute ->
-                                    val reminderCal = Calendar.getInstance().apply {
-                                        set(year, month, dayOfMonth, hourOfDay, minute, 0)
-                                    }
-                                    viewModel.onReminderChange(reminderCal.timeInMillis)
-                                }, calendar.get(Calendar.HOUR_OF_DAY), calendar.get(Calendar.MINUTE), true).show()
-                            }, calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH), calendar.get(Calendar.DAY_OF_MONTH)).show()
-                        },
-                        icon = if (state.reminderTime != null) Icons.Filled.NotificationsActive else Icons.Filled.NotificationsNone,
-                        tooltip = if (state.reminderTime != null) "Изменить напоминание" else "Установить напоминание",
-                        tint = if (state.reminderTime != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                    )
-
-                    // Overflow Menu
+                    // 4. Overflow Menu
                     Box {
                         TooltipIconButton(
                             onClick = { showTopMenu = true },
@@ -435,30 +426,65 @@ fun NoteEditorScreen(
                             expanded = showTopMenu,
                             onDismissRequest = { showTopMenu = false }
                         ) {
+                            // Озвучивание
                             DropdownMenuItem(
                                 text = {
                                     Column {
-                                        Text("Информация о заметке")
-                                        Text("Статистика и дата изменения", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(if (speechManager.isSpeaking) "Остановить чтение" else "Озвучить заметку вслух")
+                                        Text("Воспроизведение текста через синтезатор", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 },
-                                leadingIcon = { Icon(Icons.Filled.Info, null) },
+                                leadingIcon = { Icon(if (speechManager.isSpeaking) Icons.Filled.VolumeUp else Icons.Filled.VolumeMute, null, tint = if (speechManager.isSpeaking) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface) },
                                 onClick = {
                                     showTopMenu = false
-                                    showInfoDialog = true
+                                    if (speechManager.isSpeaking) {
+                                        speechManager.stop()
+                                    } else {
+                                        val fullText = if (state.content.isNotBlank()) state.content else state.title
+                                        speechManager.speak(fullText, state.title)
+                                    }
                                 }
                             )
                             DropdownMenuItem(
                                 text = {
                                     Column {
-                                        Text("Поделиться заметкой")
-                                        Text("Текст, листок блокнота (фото), PDF или TXT", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text("Настройки голоса")
+                                        Text("Выбор голоса, тембр и скорость речи", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 },
-                                leadingIcon = { Icon(Icons.Filled.Share, null) },
+                                leadingIcon = { Icon(Icons.Filled.SettingsVoice, null) },
                                 onClick = {
                                     showTopMenu = false
-                                    showShareSheet = true
+                                    showVoiceSettingsDialog = true
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = {
+                                    Column {
+                                        Text(if (lectureManager.isRecording) "Остановить запись лекции" else "Запись лекции (Звук в текст)")
+                                        Text("Непрерывная запись длинных лекций в текст", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                },
+                                leadingIcon = { Icon(Icons.Filled.Mic, null, tint = if (lectureManager.isRecording) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface) },
+                                onClick = {
+                                    showTopMenu = false
+                                    toggleLectureRecording()
+                                }
+                            )
+                            HorizontalDivider()
+
+                            // Оформление листа
+                            DropdownMenuItem(
+                                text = {
+                                    Column {
+                                        Text("Формат листа: ${state.pageFormat.title}")
+                                        Text("Книга, линии, клетка, крафт, винтаж", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                },
+                                leadingIcon = { Icon(Icons.Filled.AutoStories, null) },
+                                onClick = {
+                                    showTopMenu = false
+                                    showPageFormatDialog = true
                                 }
                             )
                             DropdownMenuItem(
@@ -474,17 +500,72 @@ fun NoteEditorScreen(
                                     showFontDigitizerDialog = true
                                 }
                             )
+                            HorizontalDivider()
+
+                            // Безопасность и организация
                             DropdownMenuItem(
                                 text = {
                                     Column {
-                                        Text("Звук в текст (Голосовой ввод)")
-                                        Text("Преобразовать произнесённую речь в текст", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(if (state.isPinned) "Открепить заметку" else "Закрепить вверху")
+                                        Text("Фиксация в начале списка заметок", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 },
-                                leadingIcon = { Icon(Icons.Filled.RecordVoiceOver, null) },
+                                leadingIcon = { Icon(if (state.isPinned) Icons.Filled.PushPin else Icons.Outlined.PushPin, null) },
                                 onClick = {
                                     showTopMenu = false
-                                    startSpeechToText()
+                                    viewModel.togglePin()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = {
+                                    Column {
+                                        Text(if (state.reminderTime != null) "Изменить напоминание" else "Установить напоминание")
+                                        Text("Уведомление в заданный день и час", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                },
+                                leadingIcon = { Icon(if (state.reminderTime != null) Icons.Filled.NotificationsActive else Icons.Filled.NotificationsNone, null) },
+                                onClick = {
+                                    showTopMenu = false
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                                            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                        }
+                                    }
+                                    val calendar = Calendar.getInstance()
+                                    DatePickerDialog(context, { _, year, month, dayOfMonth ->
+                                        TimePickerDialog(context, { _, hourOfDay, minute ->
+                                            val reminderCal = Calendar.getInstance().apply {
+                                                set(year, month, dayOfMonth, hourOfDay, minute, 0)
+                                            }
+                                            viewModel.onReminderChange(reminderCal.timeInMillis)
+                                        }, calendar.get(Calendar.HOUR_OF_DAY), calendar.get(Calendar.MINUTE), true).show()
+                                    }, calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH), calendar.get(Calendar.DAY_OF_MONTH)).show()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = {
+                                    Column {
+                                        Text(if (state.isLocked) "Снять защиту PIN-кодом" else "Защитить PIN-кодом")
+                                        Text(if (state.isLocked) "Заметка будет открываться без ввода PIN" else "Скрывать содержимое до ввода PIN", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                },
+                                leadingIcon = { Icon(if (state.isLocked) Icons.Filled.LockOpen else Icons.Filled.Lock, null) },
+                                onClick = {
+                                    showTopMenu = false
+                                    if (!state.isLocked) {
+                                        if (!preferencesManager.hasCustomPinSetSync()) {
+                                            showPinSetupDialog = true
+                                        } else {
+                                            viewModel.toggleLock()
+                                            Toast.makeText(context, "Заметка защищена PIN-кодом", Toast.LENGTH_SHORT).show()
+                                        }
+                                    } else {
+                                        if (preferencesManager.hasCustomPinSetSync()) {
+                                            showPinUnlockDialog = true
+                                        } else {
+                                            viewModel.toggleLock()
+                                        }
+                                    }
                                 }
                             )
                             DropdownMenuItem(
@@ -500,6 +581,22 @@ fun NoteEditorScreen(
                                     showTemplateDialog = true
                                 }
                             )
+                            DropdownMenuItem(
+                                text = {
+                                    Column {
+                                        Text("Информация о заметке")
+                                        Text("Статистика символов, дата изменения", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                },
+                                leadingIcon = { Icon(Icons.Filled.Info, null) },
+                                onClick = {
+                                    showTopMenu = false
+                                    showInfoDialog = true
+                                }
+                            )
+                            HorizontalDivider()
+
+                            // Экспорт
                             DropdownMenuItem(
                                 text = {
                                     Column {
@@ -524,19 +621,6 @@ fun NoteEditorScreen(
                                 onClick = {
                                     showTopMenu = false
                                     ShareExportUtil.shareAsTxtFile(context, state.toDomainNote())
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text(if (state.isLocked) "Снять защиту PIN-кодом" else "Защитить PIN-кодом")
-                                        Text(if (state.isLocked) "Заметка будет доступна без ввода PIN" else "Скрывать содержимое до ввода PIN", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                },
-                                leadingIcon = { Icon(if (state.isLocked) Icons.Filled.LockOpen else Icons.Filled.Lock, null) },
-                                onClick = {
-                                    showTopMenu = false
-                                    viewModel.toggleLock()
                                 }
                             )
                             DropdownMenuItem(
@@ -759,15 +843,27 @@ fun NoteEditorScreen(
                             }
                         }
 
-                        // Звук в текст (Кнопка диктовки)
+                        // Запись лекции / Звук в текст
                         FilledTonalButton(
-                            onClick = { startSpeechToText() },
+                            onClick = { toggleLectureRecording() },
                             modifier = Modifier.height(34.dp),
-                            contentPadding = PaddingValues(horizontal = 8.dp)
+                            contentPadding = PaddingValues(horizontal = 8.dp),
+                            colors = if (lectureManager.isRecording) {
+                                ButtonDefaults.filledTonalButtonColors(
+                                    containerColor = MaterialTheme.colorScheme.error,
+                                    contentColor = MaterialTheme.colorScheme.onError
+                                )
+                            } else {
+                                ButtonDefaults.filledTonalButtonColors()
+                            }
                         ) {
-                            Icon(Icons.Filled.Mic, contentDescription = "Звук в текст", modifier = Modifier.size(16.dp))
+                            Icon(
+                                imageVector = if (lectureManager.isRecording) Icons.Filled.FiberManualRecord else Icons.Filled.Mic,
+                                contentDescription = "Звук в текст",
+                                modifier = Modifier.size(16.dp)
+                            )
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("Звук в текст", fontSize = 12.sp)
+                            Text(if (lectureManager.isRecording) "Лекция..." else "Звук в текст", fontSize = 12.sp)
                         }
 
                         // Озвучить текст (Text-to-Speech)
@@ -798,6 +894,14 @@ fun NoteEditorScreen(
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(if (speechManager.isSpeaking) "Стоп" else "Озвучить", fontSize = 12.sp)
+                        }
+
+                        // Настройки голоса синтезатора
+                        FilledTonalIconButton(
+                            onClick = { showVoiceSettingsDialog = true },
+                            modifier = Modifier.size(34.dp)
+                        ) {
+                            Icon(Icons.Filled.SettingsVoice, contentDescription = "Выбор голоса", modifier = Modifier.size(16.dp))
                         }
 
                         // Заголовок H1
@@ -1350,27 +1454,113 @@ fun NoteEditorScreen(
                 }
             }
 
-            // Attached Images Row
-            if (state.imageUris.isNotEmpty()) {
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
+            // Continuous Lecture Transcription Active Banner
+            if (lectureManager.isRecording) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.9f)
+                    )
                 ) {
-                    items(state.imageUris) { uri ->
-                        Box(modifier = Modifier.size(130.dp).clip(RoundedCornerShape(12.dp))) {
-                            AsyncImage(
-                                model = uri,
-                                contentDescription = "Прикрепленное изображение",
-                                modifier = Modifier.fillMaxSize()
-                            )
-                            IconButton(
-                                onClick = { viewModel.removeImage(uri) },
-                                modifier = Modifier
-                                    .align(Alignment.TopEnd)
-                                    .size(28.dp)
-                                    .background(Color.Black.copy(alpha = 0.6f), CircleShape)
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(12.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.error)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Запись лекции...",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onErrorContainer
+                                )
+                            }
+                            Button(
+                                onClick = { toggleLectureRecording() },
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                             ) {
-                                Icon(Icons.Filled.Close, contentDescription = "Удалить фото", tint = Color.White, modifier = Modifier.size(16.dp))
+                                Text("Остановить")
+                            }
+                        }
+                        if (lectureManager.partialHypothesis.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "Слышу: «${lectureManager.partialHypothesis}»",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontStyle = FontStyle.Italic,
+                                color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.9f)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Attached Images & Hand Drawings (Full format & Click-to-view fullscreen)
+            if (state.imageUris.isNotEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    state.imageUris.forEach { uri ->
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(14.dp))
+                                .clickable { previewingImageUri = uri },
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                            ),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                        ) {
+                            Box(modifier = Modifier.fillMaxWidth()) {
+                                AsyncImage(
+                                    model = uri,
+                                    contentDescription = "Рисунок или изображение заметки",
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(min = 180.dp, max = 360.dp)
+                                        .clip(RoundedCornerShape(14.dp))
+                                )
+                                Row(
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .padding(8.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    FilledTonalIconButton(
+                                        onClick = { previewingImageUri = uri },
+                                        modifier = Modifier.size(34.dp),
+                                        colors = IconButtonDefaults.filledTonalIconButtonColors(
+                                            containerColor = Color.Black.copy(alpha = 0.65f),
+                                            contentColor = Color.White
+                                        )
+                                    ) {
+                                        Icon(Icons.Filled.Fullscreen, contentDescription = "Открыть на весь экран", modifier = Modifier.size(20.dp))
+                                    }
+                                    FilledTonalIconButton(
+                                        onClick = { viewModel.removeImage(uri) },
+                                        modifier = Modifier.size(34.dp),
+                                        colors = IconButtonDefaults.filledTonalIconButtonColors(
+                                            containerColor = Color.Black.copy(alpha = 0.65f),
+                                            contentColor = Color.White
+                                        )
+                                    ) {
+                                        Icon(Icons.Filled.Close, contentDescription = "Удалить рисунок", modifier = Modifier.size(18.dp))
+                                    }
+                                }
                             }
                         }
                     }
@@ -2031,6 +2221,63 @@ fun NoteEditorScreen(
                 viewModel.onFontFormatChange(font)
                 Toast.makeText(context, "Применён шрифт: ${font.title}", Toast.LENGTH_SHORT).show()
             }
+        )
+    }
+
+    if (showVoiceSettingsDialog) {
+        VoiceSettingsDialog(
+            speechManager = speechManager,
+            onDismissRequest = { showVoiceSettingsDialog = false },
+            onSaveSettings = { voiceId, pitch, rate ->
+                speechManager.setVoice(voiceId)
+                speechManager.setPitch(pitch)
+                speechManager.setRate(rate)
+                coroutineScope.launch {
+                    preferencesManager.setTtsSettings(voiceId, pitch, rate)
+                }
+                showVoiceSettingsDialog = false
+            }
+        )
+    }
+
+    if (previewingImageUri != null) {
+        FullscreenImageViewerDialog(
+            imageUri = previewingImageUri!!,
+            onDismissRequest = { previewingImageUri = null },
+            onDeleteImage = {
+                val uriToDelete = previewingImageUri
+                previewingImageUri = null
+                uriToDelete?.let { viewModel.removeImage(it) }
+            }
+        )
+    }
+
+    if (showPinSetupDialog) {
+        PinSetupDialog(
+            onPinConfigured = { newPin: String ->
+                preferencesManager.setPinCodeSync(newPin)
+                coroutineScope.launch {
+                    preferencesManager.setPinCode(newPin)
+                    preferencesManager.setPinEnabled(true)
+                }
+                showPinSetupDialog = false
+                viewModel.toggleLock()
+                Toast.makeText(context, "PIN-код успешно установлен. Заметка защищена", Toast.LENGTH_SHORT).show()
+            },
+            onDismissRequest = { showPinSetupDialog = false }
+        )
+    }
+
+    if (showPinUnlockDialog) {
+        val savedPin = preferencesManager.getPinCodeSync()
+        PinVerifyDialog(
+            correctPin = savedPin,
+            onSuccess = {
+                showPinUnlockDialog = false
+                viewModel.toggleLock()
+                Toast.makeText(context, "Защита PIN-кодом снята", Toast.LENGTH_SHORT).show()
+            },
+            onDismissRequest = { showPinUnlockDialog = false }
         )
     }
 }

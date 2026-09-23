@@ -22,15 +22,19 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.data.preferences.UserPreferencesManager
 import com.example.domain.model.Note
 import com.example.domain.model.NoteTemplate
 import com.example.presentation.components.FilterBottomSheet
 import com.example.presentation.components.HelpDialog
 import com.example.presentation.components.NoteCard
 import com.example.presentation.components.NoteTemplateDialog
+import com.example.presentation.components.PinSetupDialog
+import com.example.presentation.components.PinVerifyDialog
 import com.example.presentation.components.ShareNoteBottomSheet
 import com.example.presentation.components.TooltipIconButton
 import com.example.ui.theme.NoteColors
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -44,6 +48,10 @@ fun NotesListScreen(
     onTrashClick: () -> Unit
 ) {
     val state by viewModel.uiState.collectAsState()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val preferencesManager = remember { UserPreferencesManager(context) }
+
     var showFilterSheet by remember { mutableStateOf(false) }
     var showFolderDialog by remember { mutableStateOf(false) }
     var newFolderName by remember { mutableStateOf("") }
@@ -51,6 +59,25 @@ fun NotesListScreen(
     var showHelpDialog by remember { mutableStateOf(false) }
     var showTemplateDialog by remember { mutableStateOf(false) }
     var noteToShare by remember { mutableStateOf<Note?>(null) }
+
+    var targetLockedNoteId by remember { mutableStateOf<Long?>(null) }
+    var showPinVerifyDialog by remember { mutableStateOf(false) }
+    var showPinSetupDialog by remember { mutableStateOf(false) }
+
+    val handleNoteCardClick: (Note) -> Unit = { note ->
+        if (state.isSelectionMode) {
+            viewModel.toggleNoteSelection(note.id)
+        } else if (note.isLocked) {
+            targetLockedNoteId = note.id
+            if (preferencesManager.hasCustomPinSetSync()) {
+                showPinVerifyDialog = true
+            } else {
+                showPinSetupDialog = true
+            }
+        } else {
+            onNoteClick(note.id)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -80,6 +107,12 @@ fun NotesListScreen(
                             onClick = { viewModel.pinSelectedNotes(anyUnpinned) },
                             icon = if (anyUnpinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
                             tooltip = if (anyUnpinned) "Закрепить выбранные" else "Открепить выбранные"
+                        )
+                        val anyUnlocked = state.notes.filter { state.selectedNoteIds.contains(it.id) }.any { !it.isLocked }
+                        TooltipIconButton(
+                            onClick = { viewModel.lockSelectedNotes(anyUnlocked) },
+                            icon = if (anyUnlocked) Icons.Filled.Lock else Icons.Filled.LockOpen,
+                            tooltip = if (anyUnlocked) "Защитить выбранные PIN-кодом" else "Снять защиту PIN-кодом"
                         )
                         TooltipIconButton(
                             onClick = { viewModel.selectAllNotes() },
@@ -357,13 +390,7 @@ fun NotesListScreen(
                             items(notesToDisplay, key = { "${it.id}_${it.updatedAt}_${it.createdAt}" }) { note ->
                                 NoteCard(
                                     note = note,
-                                    onClick = {
-                                        if (state.isSelectionMode) {
-                                            viewModel.toggleNoteSelection(note.id)
-                                        } else {
-                                            onNoteClick(note.id)
-                                        }
-                                    },
+                                    onClick = { handleNoteCardClick(note) },
                                     onLongClick = { viewModel.toggleNoteSelection(note.id) },
                                     onPinClick = { viewModel.togglePin(note) },
                                     onShareClick = { noteToShare = note },
@@ -381,13 +408,7 @@ fun NotesListScreen(
                             items(notesToDisplay, key = { "${it.id}_${it.updatedAt}_${it.createdAt}" }) { note ->
                                 NoteCard(
                                     note = note,
-                                    onClick = {
-                                        if (state.isSelectionMode) {
-                                            viewModel.toggleNoteSelection(note.id)
-                                        } else {
-                                            onNoteClick(note.id)
-                                        }
-                                    },
+                                    onClick = { handleNoteCardClick(note) },
                                     onLongClick = { viewModel.toggleNoteSelection(note.id) },
                                     onPinClick = { viewModel.togglePin(note) },
                                     onShareClick = { noteToShare = note },
@@ -531,6 +552,39 @@ fun NotesListScreen(
         ShareNoteBottomSheet(
             note = noteToShare!!,
             onDismissRequest = { noteToShare = null }
+        )
+    }
+
+    if (showPinVerifyDialog) {
+        PinVerifyDialog(
+            correctPin = preferencesManager.getPinCodeSync(),
+            onSuccess = {
+                showPinVerifyDialog = false
+                targetLockedNoteId?.let { onNoteClick(it) }
+                targetLockedNoteId = null
+            },
+            onDismissRequest = {
+                showPinVerifyDialog = false
+                targetLockedNoteId = null
+            }
+        )
+    }
+
+    if (showPinSetupDialog) {
+        PinSetupDialog(
+            onPinConfigured = { pin ->
+                coroutineScope.launch {
+                    preferencesManager.setPinCode(pin)
+                    preferencesManager.setPinEnabled(true)
+                    showPinSetupDialog = false
+                    targetLockedNoteId?.let { onNoteClick(it) }
+                    targetLockedNoteId = null
+                }
+            },
+            onDismissRequest = {
+                showPinSetupDialog = false
+                targetLockedNoteId = null
+            }
         )
     }
 }
