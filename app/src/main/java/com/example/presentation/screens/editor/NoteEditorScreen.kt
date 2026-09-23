@@ -386,6 +386,13 @@ fun NoteEditorScreen(
     val activeInkColor = try {
         if (state.textColorHex.isNotBlank() && state.textColorHex != "#1C1B1F" && !isDarkPaper && state.pageFormat != PageFormat.BLUEPRINT) {
             Color(android.graphics.Color.parseColor(state.textColorHex))
+        } else if (state.noteFont == NoteFontFamily.CUSTOM_DIGITIZED && !isDarkPaper && state.pageFormat != PageFormat.BLUEPRINT) {
+            val customHex = UserPreferencesManager(context).getHandwritingInkColorSync()
+            if (!customHex.isNullOrBlank()) {
+                Color(android.graphics.Color.parseColor(customHex))
+            } else {
+                inkColor
+            }
         } else {
             inkColor
         }
@@ -2184,8 +2191,9 @@ fun NoteEditorScreen(
                                 },
                             textStyle = MaterialTheme.typography.bodyLarge.copy(
                                 fontFamily = activeFontFamily,
-                                fontSize = if (state.pageFormat == PageFormat.BOOK || state.pageFormat == PageFormat.VINTAGE) 17.sp else 16.sp,
-                                lineHeight = if (state.pageFormat == PageFormat.RULED) 34.sp else 30.sp,
+                                fontSize = if (state.noteFont == NoteFontFamily.CUSTOM_DIGITIZED) 19.sp else if (state.pageFormat == PageFormat.BOOK || state.pageFormat == PageFormat.VINTAGE) 17.sp else 16.sp,
+                                lineHeight = if (state.noteFont == NoteFontFamily.CUSTOM_DIGITIZED) 32.sp else if (state.pageFormat == PageFormat.RULED) 34.sp else 30.sp,
+                                letterSpacing = if (state.noteFont == NoteFontFamily.CUSTOM_DIGITIZED) (UserPreferencesManager(context).getHandwritingSpacingSync() * 0.4f).sp else androidx.compose.ui.unit.TextUnit.Unspecified,
                                 color = activeInkColor
                             ),
                             cursorBrush = SolidColor(if (state.pageFormat == PageFormat.BOOK) NotebookPalette.BookBookmark else if (isDarkPaper) Color.White else MaterialTheme.colorScheme.primary),

@@ -1,15 +1,16 @@
 package com.example.presentation.components
 
-import android.content.Context
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -21,13 +22,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -36,14 +31,17 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
+import com.example.data.preferences.UserPreferencesManager
 import com.example.domain.model.NoteFontFamily
-import com.example.util.HandwritingAnalysisResult
-import com.example.util.HandwritingPhotoDigitizer
+import com.example.util.GlyphCategory
+import com.example.util.HandwritingGlyphItem
+import com.example.util.HandwritingGlyphManager
 import com.example.util.NoteFontHelper
 import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileOutputStream
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CustomFontDigitizerDialog(
     initialImageUri: String? = null,
@@ -53,125 +51,117 @@ fun CustomFontDigitizerDialog(
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val prefs = remember { UserPreferencesManager(context) }
 
-    // 0: По фото алфавита (.jpg / .png), 1: Нарисовать на экране, 2: Импорт TTF / OTF
+    // Tabs: 0: Алфавит по буквам, 1: Связный текст и переходы, 2: Тетрадь и проверка, 3: Импорт TTF
     var selectedTab by remember { mutableIntStateOf(0) }
 
-    // State for Tab 0: Photo Digitizer
-    var selectedPhotoUri by remember {
-        mutableStateOf<Uri?>(initialImageUri?.let { Uri.parse(it) })
-    }
-    var isAnalyzingPhoto by remember { mutableStateOf(false) }
-    var isExtractingText by remember { mutableStateOf(false) }
-    var analysisResult by remember {
-        mutableStateOf<HandwritingAnalysisResult?>(HandwritingPhotoDigitizer.getSavedCalibration(context))
-    }
+    // Glyph List State
+    var glyphItems by remember { mutableStateOf(HandwritingGlyphManager.loadAllGlyphItems(context)) }
+    var selectedCategoryFilter by remember { mutableStateOf<GlyphCategory?>(null) }
+    var selectedLetterToCapture by remember { mutableStateOf<HandwritingGlyphItem?>(null) }
 
-    // Handwriting Canvas State (Tab 1)
-    val strokes = remember { mutableStateListOf<List<Offset>>() }
-    var currentStroke by remember { mutableStateOf<List<Offset>>(emptyList()) }
+    // Full-sheet bulk processing
+    var isProcessingSheet by remember { mutableStateOf(false) }
 
-    var penThickness by remember { mutableFloatStateOf(analysisResult?.strokeThickness ?: 4f) }
-    var penSlant by remember { mutableFloatStateOf(analysisResult?.slantAngle ?: 9f) }
-    var letterSpacing by remember { mutableFloatStateOf(analysisResult?.letterSpacing ?: 1.15f) }
+    // Sentence analysis state
+    var sentencePhotoUri by remember { mutableStateOf<Uri?>(null) }
+    var isAnalyzingSentence by remember { mutableStateOf(false) }
+    var penSlant by remember { mutableFloatStateOf(prefs.getHandwritingSlantSync()) }
+    var penThickness by remember { mutableFloatStateOf(prefs.getHandwritingThicknessSync()) }
+    var letterSpacing by remember { mutableFloatStateOf(prefs.getHandwritingSpacingSync()) }
+    var selectedInkHex by remember { mutableStateOf(prefs.getHandwritingInkColorSync() ?: "#1E3A8A") }
+    var connectionStyle by remember { mutableStateOf("Слитный скорописный") }
 
-    // Custom Font File State (Tab 2)
-    val customFontFile = remember { File(context.filesDir, "custom_fonts/active_font.ttf") }
-    var hasCustomFont by remember { mutableStateOf(customFontFile.exists() && customFontFile.length() > 0) }
-
-    var previewSampleText by remember {
-        mutableStateOf("Привет! Это мой оцифрованный рукописный почерк.")
+    // Live Testing Preview text
+    var testInputText by remember {
+        mutableStateOf("Привет! Это мой настоящий оцифрованный почерк. Все буквы, цифры 12345 и знаки (!?) сохранены.")
     }
 
-    // Auto-analyze initialImageUri if provided
-    LaunchedEffect(initialImageUri) {
-        if (initialImageUri != null && selectedPhotoUri != null && analysisResult == null) {
-            isAnalyzingPhoto = true
-            val result = HandwritingPhotoDigitizer.processAlphabetPhoto(context, selectedPhotoUri!!)
-            isAnalyzingPhoto = false
-            result.onSuccess { analysis ->
-                analysisResult = analysis
-                penThickness = analysis.strokeThickness
-                penSlant = analysis.slantAngle
-                letterSpacing = analysis.letterSpacing
-                hasCustomFont = true
-                onFontApplied(NoteFontFamily.CUSTOM_DIGITIZED)
-            }
-        }
+    val (digitizedCount, totalCount) = remember(glyphItems) {
+        val count = glyphItems.count { it.isDigitized }
+        count to glyphItems.size
     }
 
-    // Launcher for selecting alphabet photo (.jpg, .png, etc.)
-    val photoPickerLauncher = rememberLauncherForActivityResult(
+    // Sheet photo picker launcher (auto-segmentation)
+    val sheetPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {
-            selectedPhotoUri = uri
-            isAnalyzingPhoto = true
+            isProcessingSheet = true
             coroutineScope.launch {
-                val result = HandwritingPhotoDigitizer.processAlphabetPhoto(context, uri)
-                isAnalyzingPhoto = false
-                result.onSuccess { analysis ->
-                    analysisResult = analysis
-                    penThickness = analysis.strokeThickness
-                    penSlant = analysis.slantAngle
-                    letterSpacing = analysis.letterSpacing
-                    hasCustomFont = true
+                val result = HandwritingGlyphManager.segmentAndSaveAlphabetSheet(context, uri)
+                isProcessingSheet = false
+                result.onSuccess { count ->
+                    glyphItems = HandwritingGlyphManager.loadAllGlyphItems(context)
                     onFontApplied(NoteFontFamily.CUSTOM_DIGITIZED)
-                    Toast.makeText(context, "Алфавит распознан! Почерк оцифрован и активирован", Toast.LENGTH_SHORT).show()
-                }.onFailure { error ->
-                    Toast.makeText(context, "Ошибка обработки фото: ${error.message}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, "Оцифровано $count букв с листа!", Toast.LENGTH_SHORT).show()
+                }.onFailure { err ->
+                    Toast.makeText(context, "Ошибка обработки листа: ${err.message}", Toast.LENGTH_LONG).show()
                 }
             }
         }
     }
 
-    // Launcher for font files (.ttf, .otf) with intelligent redirect if user picks a .jpg
-    val filePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
+    // Sentence photo picker launcher
+    val sentencePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {
-            val fileName = uri.path?.lowercase() ?: ""
-            val isImage = fileName.endsWith(".jpg") || fileName.endsWith(".jpeg") ||
-                    fileName.endsWith(".png") || fileName.endsWith(".webp") ||
-                    (context.contentResolver.getType(uri)?.startsWith("image/") == true)
-
-            if (isImage) {
-                // User picked an image in the font tab -> gracefully redirect to Photo Digitizer tab
-                selectedTab = 0
-                selectedPhotoUri = uri
-                isAnalyzingPhoto = true
-                coroutineScope.launch {
-                    val result = HandwritingPhotoDigitizer.processAlphabetPhoto(context, uri)
-                    isAnalyzingPhoto = false
-                    result.onSuccess { analysis ->
-                        analysisResult = analysis
-                        penThickness = analysis.strokeThickness
-                        penSlant = analysis.slantAngle
-                        letterSpacing = analysis.letterSpacing
-                        hasCustomFont = true
-                        Toast.makeText(context, "Фото алфавита оцифровано во вкладке «По фото»!", Toast.LENGTH_SHORT).show()
-                    }.onFailure { error ->
-                        Toast.makeText(context, "Ошибка обработки фото: ${error.message}", Toast.LENGTH_LONG).show()
-                    }
-                }
-            } else {
-                try {
-                    val fontsDir = File(context.filesDir, "custom_fonts").apply { mkdirs() }
-                    val targetFile = File(fontsDir, "active_font.ttf")
-                    context.contentResolver.openInputStream(uri)?.use { input ->
-                        FileOutputStream(targetFile).use { output ->
-                            input.copyTo(output)
-                        }
-                    }
-                    hasCustomFont = true
-                    Toast.makeText(context, "Файл шрифта (.ttf/.otf) успешно импортирован!", Toast.LENGTH_SHORT).show()
+            sentencePhotoUri = uri
+            isAnalyzingSentence = true
+            coroutineScope.launch {
+                val res = HandwritingGlyphManager.analyzeSentenceWriting(context, uri)
+                isAnalyzingSentence = false
+                res.onSuccess { metrics ->
+                    penSlant = metrics.slantAngle
+                    penThickness = metrics.strokeThickness
+                    letterSpacing = metrics.letterSpacing
+                    selectedInkHex = metrics.inkColorHex
+                    connectionStyle = metrics.connectionStyle
                     onFontApplied(NoteFontFamily.CUSTOM_DIGITIZED)
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                    Toast.makeText(context, "Ошибка импорта шрифта: ${e.message}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, "Параметры переходов и наклона извлечены!", Toast.LENGTH_SHORT).show()
+                }.onFailure { err ->
+                    Toast.makeText(context, "Ошибка анализа: ${err.message}", Toast.LENGTH_LONG).show()
                 }
             }
         }
+    }
+
+    // Direct TTF import
+    val fontFilePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            try {
+                val destDir = File(context.filesDir, "custom_fonts").apply { mkdirs() }
+                val destFile = File(destDir, "active_font.ttf")
+                context.contentResolver.openInputStream(uri)?.use { inStream ->
+                    FileOutputStream(destFile).use { outStream ->
+                        inStream.copyTo(outStream)
+                    }
+                }
+                prefs.setCustomFontPathSync(destFile.absolutePath)
+                prefs.setDefaultNoteFontSync(NoteFontFamily.CUSTOM_DIGITIZED.id)
+                onFontApplied(NoteFontFamily.CUSTOM_DIGITIZED)
+                Toast.makeText(context, "Файл шрифта успешно импортирован!", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Toast.makeText(context, "Ошибка импорта шрифта: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    // Single letter modal dialog if selected
+    selectedLetterToCapture?.let { letterItem ->
+        SingleLetterCaptureDialog(
+            item = letterItem,
+            onDismissRequest = { selectedLetterToCapture = null },
+            onGlyphSaved = {
+                selectedLetterToCapture = null
+                glyphItems = HandwritingGlyphManager.loadAllGlyphItems(context)
+                onFontApplied(NoteFontFamily.CUSTOM_DIGITIZED)
+            }
+        )
     }
 
     Dialog(
@@ -180,9 +170,9 @@ fun CustomFontDigitizerDialog(
     ) {
         Surface(
             modifier = Modifier
-                .fillMaxWidth(0.95f)
-                .fillMaxHeight(0.92f)
-                .clip(RoundedCornerShape(24.dp)),
+                .fillMaxWidth(0.96f)
+                .fillMaxHeight(0.92f),
+            shape = RoundedCornerShape(24.dp),
             color = MaterialTheme.colorScheme.surface,
             tonalElevation = 6.dp
         ) {
@@ -194,555 +184,502 @@ fun CustomFontDigitizerDialog(
                 // Header
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Filled.AutoFixHigh,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
+                    Column {
                         Text(
-                            text = "Оцифровка почерка",
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                            text = "Студия оцифровки почерка",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Оцифровано $digitizedCount из $totalCount символов (${if (totalCount > 0) (digitizedCount * 100 / totalCount) else 0}%)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Medium
                         )
                     }
+
                     IconButton(onClick = onDismissRequest) {
                         Icon(Icons.Filled.Close, contentDescription = "Закрыть")
                     }
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
-                // Tabs
-                TabRow(
+                // Progress Bar
+                LinearProgressIndicator(
+                    progress = { if (totalCount > 0) digitizedCount.toFloat() / totalCount else 0f },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Primary Tabs
+                ScrollableTabRow(
                     selectedTabIndex = selectedTab,
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                    modifier = Modifier.clip(RoundedCornerShape(12.dp))
+                    edgePadding = 0.dp,
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     Tab(
                         selected = selectedTab == 0,
                         onClick = { selectedTab = 0 },
-                        text = { Text("По фото (.jpg)", fontSize = 12.sp, fontWeight = FontWeight.SemiBold) },
-                        icon = { Icon(Icons.Filled.CameraAlt, null, modifier = Modifier.size(16.dp)) }
+                        text = { Text("Алфавит по буквам", fontSize = 12.sp) },
+                        icon = { Icon(Icons.Filled.GridOn, null, modifier = Modifier.size(16.dp)) }
                     )
                     Tab(
                         selected = selectedTab == 1,
                         onClick = { selectedTab = 1 },
-                        text = { Text("На экране", fontSize = 12.sp) },
+                        text = { Text("Связный текст", fontSize = 12.sp) },
                         icon = { Icon(Icons.Filled.Gesture, null, modifier = Modifier.size(16.dp)) }
                     )
                     Tab(
                         selected = selectedTab == 2,
                         onClick = { selectedTab = 2 },
-                        text = { Text("Файл TTF", fontSize = 12.sp) },
-                        icon = { Icon(Icons.Filled.FileUpload, null, modifier = Modifier.size(16.dp)) }
+                        text = { Text("Проверка в тетради", fontSize = 12.sp) },
+                        icon = { Icon(Icons.Filled.EditNote, null, modifier = Modifier.size(16.dp)) }
+                    )
+                    Tab(
+                        selected = selectedTab == 3,
+                        onClick = { selectedTab = 3 },
+                        text = { Text("Импорт TTF", fontSize = 12.sp) },
+                        icon = { Icon(Icons.Filled.FolderOpen, null, modifier = Modifier.size(16.dp)) }
                     )
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
-                // TAB 0: DIGITIZE FROM PHOTO OF ALPHABET
-                if (selectedTab == 0) {
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .verticalScroll(rememberScrollState())
-                    ) {
-                        Text(
-                            text = "Загрузите фото листа с рукописным алфавитом (.jpg или .png). Приложение считает индивидуальные штрихи, наклон и толщину пера:",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        // Upload Box / Image Preview
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(160.dp)
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
-                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (selectedPhotoUri != null) {
-                                AsyncImage(
-                                    model = selectedPhotoUri,
-                                    contentDescription = "Фото алфавита",
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .align(Alignment.BottomCenter)
-                                        .fillMaxWidth()
-                                        .background(Color.Black.copy(alpha = 0.55f))
-                                        .padding(6.dp)
+                // TAB CONTENT
+                Box(modifier = Modifier.weight(1f)) {
+                    when (selectedTab) {
+                        0 -> {
+                            // TAB 0: ALPHABET CHARACTER GRID
+                            Column(modifier = Modifier.fillMaxSize()) {
+                                // Action Bar: Bulk photo button + Filters
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Text(
-                                        text = "Фото листа с алфавитом загружено",
-                                        color = Color.White,
-                                        fontSize = 11.sp,
-                                        modifier = Modifier.align(Alignment.Center)
-                                    )
-                                }
-                            } else if (analysisResult != null && File(analysisResult!!.sampleImagePath).exists()) {
-                                AsyncImage(
-                                    model = File(analysisResult!!.sampleImagePath),
-                                    contentDescription = "Сохраненный образец алфавита",
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .align(Alignment.BottomCenter)
-                                        .fillMaxWidth()
-                                        .background(Color.Black.copy(alpha = 0.55f))
-                                        .padding(6.dp)
-                                ) {
-                                    Text(
-                                        text = "Ранее оцифрованный образец почерка",
-                                        color = Color.White,
-                                        fontSize = 11.sp,
-                                        modifier = Modifier.align(Alignment.Center)
-                                    )
-                                }
-                            } else {
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center,
-                                    modifier = Modifier.padding(16.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Filled.Image,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(36.dp)
-                                    )
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Text(
-                                        text = "Фото алфавита (.jpg / .png) еще не выбрано",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    Text(
-                                        text = "Подойдет фото листа бумаги с буквами от руки",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.outline
-                                    )
-                                }
-                            }
-
-                            if (isAnalyzingPhoto || isExtractingText) {
-                                Surface(
-                                    modifier = Modifier.fillMaxSize(),
-                                    color = Color.Black.copy(alpha = 0.65f)
-                                ) {
-                                    Column(
-                                        modifier = Modifier.fillMaxSize(),
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.Center
+                                    Button(
+                                        onClick = { sheetPickerLauncher.launch("image/*") },
+                                        modifier = Modifier.weight(1f),
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
                                     ) {
-                                        CircularProgressIndicator(color = Color.White, modifier = Modifier.size(32.dp))
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        Text(
-                                            if (isExtractingText) "Распознавание текста с фото..." else "Оцифровка штрихов и наклона...",
-                                            color = Color.White,
-                                            fontSize = 12.sp
+                                        Icon(Icons.Filled.DocumentScanner, null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Фото всего листа алфавита", fontSize = 11.sp)
+                                    }
+
+                                    OutlinedButton(
+                                        onClick = {
+                                            HandwritingGlyphManager.resetAllGlyphs(context)
+                                            glyphItems = HandwritingGlyphManager.loadAllGlyphItems(context)
+                                            Toast.makeText(context, "Символы сброшены", Toast.LENGTH_SHORT).show()
+                                        },
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                                    ) {
+                                        Icon(Icons.Filled.Refresh, null, modifier = Modifier.size(14.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Сброс", fontSize = 11.sp)
+                                    }
+                                }
+
+                                if (isProcessingSheet) {
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                                    Text("Сегментация и оцифровка букв с листа бумаги...", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                                }
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                // Filter Chips: Все, Строчные, Заглавные, Цифры, Знаки
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    FilterChip(
+                                        selected = selectedCategoryFilter == null,
+                                        onClick = { selectedCategoryFilter = null },
+                                        label = { Text("Все (${glyphItems.size})", fontSize = 11.sp) }
+                                    )
+                                    FilterChip(
+                                        selected = selectedCategoryFilter == GlyphCategory.LOWERCASE,
+                                        onClick = { selectedCategoryFilter = GlyphCategory.LOWERCASE },
+                                        label = { Text("а-я (33)", fontSize = 11.sp) }
+                                    )
+                                    FilterChip(
+                                        selected = selectedCategoryFilter == GlyphCategory.UPPERCASE,
+                                        onClick = { selectedCategoryFilter = GlyphCategory.UPPERCASE },
+                                        label = { Text("А-Я (33)", fontSize = 11.sp) }
+                                    )
+                                    FilterChip(
+                                        selected = selectedCategoryFilter == GlyphCategory.DIGIT,
+                                        onClick = { selectedCategoryFilter = GlyphCategory.DIGIT },
+                                        label = { Text("0-9 (10)", fontSize = 11.sp) }
+                                    )
+                                    FilterChip(
+                                        selected = selectedCategoryFilter == GlyphCategory.PUNCTUATION,
+                                        onClick = { selectedCategoryFilter = GlyphCategory.PUNCTUATION },
+                                        label = { Text("Знаки (10)", fontSize = 11.sp) }
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                val filteredItems = glyphItems.filter {
+                                    selectedCategoryFilter == null || it.category == selectedCategoryFilter
+                                }
+
+                                LazyVerticalGrid(
+                                    columns = GridCells.Adaptive(minSize = 64.dp),
+                                    modifier = Modifier.fillMaxSize(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    items(filteredItems, key = { it.char.code }) { item ->
+                                        CharacterGridCell(
+                                            item = item,
+                                            onClick = { selectedLetterToCapture = item }
                                         )
                                     }
                                 }
                             }
                         }
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Button(
-                                onClick = { photoPickerLauncher.launch("image/*") },
-                                modifier = Modifier.weight(1f)
+                        1 -> {
+                            // TAB 1: CONNECTED TEXT & TRANSITIONS
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .verticalScroll(rememberScrollState())
                             ) {
-                                Icon(Icons.Filled.AddPhotoAlternate, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    if (selectedPhotoUri != null || analysisResult != null) "Другое фото (.jpg)..." else "Выбрать фото (.jpg)...",
-                                    fontSize = 12.sp
+                                    text = "Оцифровка переходов, наклона и динамики пера по фото связного предложения:",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
-                            }
 
-                            if (selectedPhotoUri != null && onTextExtracted != null) {
-                                OutlinedButton(
-                                    onClick = {
-                                        isExtractingText = true
-                                        coroutineScope.launch {
-                                            val text = HandwritingPhotoDigitizer.extractTextFromImage(context, selectedPhotoUri!!)
-                                            isExtractingText = false
-                                            onTextExtracted(text)
-                                            Toast.makeText(context, "Текст с фото перенесен в заметку!", Toast.LENGTH_SHORT).show()
-                                        }
-                                    },
-                                    modifier = Modifier.weight(1f)
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
                                 ) {
-                                    Icon(Icons.Filled.DocumentScanner, null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Текст в заметку", fontSize = 12.sp)
+                                    Column(modifier = Modifier.padding(14.dp)) {
+                                        Button(
+                                            onClick = { sentencePickerLauncher.launch("image/*") },
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Icon(Icons.Filled.AddPhotoAlternate, null, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("Загрузить фото рукописного предложения")
+                                        }
+
+                                        if (isAnalyzingSentence) {
+                                            Spacer(modifier = Modifier.height(10.dp))
+                                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                                            Text("Извлечение наклона, ритма и цвета чернил...", fontSize = 11.sp)
+                                        }
+
+                                        if (sentencePhotoUri != null) {
+                                            Spacer(modifier = Modifier.height(10.dp))
+                                            AsyncImage(
+                                                model = sentencePhotoUri,
+                                                contentDescription = "Образец связного текста",
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .height(120.dp)
+                                                    .clip(RoundedCornerShape(8.dp)),
+                                                contentScale = ContentScale.Crop
+                                            )
+                                        }
+                                    }
                                 }
-                            }
-                        }
 
-                        Spacer(modifier = Modifier.height(12.dp))
+                                Spacer(modifier = Modifier.height(14.dp))
 
-                        // Detected Parameters Card
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
-                        ) {
-                            Column(modifier = Modifier.padding(12.dp)) {
                                 Text(
-                                    text = "Параметры оцифровки почерка:",
-                                    style = MaterialTheme.typography.labelMedium,
+                                    text = "Индивидуальные параметры почерка:",
+                                    style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.Bold
                                 )
 
-                                Spacer(modifier = Modifier.height(6.dp))
+                                Spacer(modifier = Modifier.height(8.dp))
 
+                                // Slant Slider
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("Толщина пера: ${penThickness.toInt()} px", style = MaterialTheme.typography.bodySmall, modifier = Modifier.width(130.dp))
-                                    Slider(
-                                        value = penThickness,
-                                        onValueChange = { penThickness = it },
-                                        valueRange = 2f..8f,
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                }
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text("Наклон почерка: ${penSlant.toInt()}°", style = MaterialTheme.typography.bodySmall, modifier = Modifier.width(130.dp))
+                                    Text("Наклон почерка: ${penSlant.toInt()}°", style = MaterialTheme.typography.bodySmall, modifier = Modifier.width(140.dp))
                                     Slider(
                                         value = penSlant,
-                                        onValueChange = { penSlant = it },
+                                        onValueChange = {
+                                            penSlant = it
+                                            prefs.saveHandwritingSettingsSync(slant = it, thickness = penThickness, spacing = letterSpacing, samplePath = null, inkColorHex = selectedInkHex)
+                                            HandwritingGlyphManager.syncActiveFont(context)
+                                        },
                                         valueRange = -5f..25f,
                                         modifier = Modifier.weight(1f)
                                     )
                                 }
 
+                                // Thickness Slider
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("Интервал букв:", style = MaterialTheme.typography.bodySmall, modifier = Modifier.width(130.dp))
+                                    Text("Толщина пера: ${penThickness.toInt()} px", style = MaterialTheme.typography.bodySmall, modifier = Modifier.width(140.dp))
+                                    Slider(
+                                        value = penThickness,
+                                        onValueChange = {
+                                            penThickness = it
+                                            prefs.saveHandwritingSettingsSync(slant = penSlant, thickness = it, spacing = letterSpacing, samplePath = null, inkColorHex = selectedInkHex)
+                                        },
+                                        valueRange = 2f..8f,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+
+                                // Letter Spacing Slider
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("Интервал букв:", style = MaterialTheme.typography.bodySmall, modifier = Modifier.width(140.dp))
                                     Slider(
                                         value = letterSpacing,
-                                        onValueChange = { letterSpacing = it },
+                                        onValueChange = {
+                                            letterSpacing = it
+                                            prefs.saveHandwritingSettingsSync(slant = penSlant, thickness = penThickness, spacing = it, samplePath = null, inkColorHex = selectedInkHex)
+                                        },
                                         valueRange = 0.8f..2.0f,
                                         modifier = Modifier.weight(1f)
                                     )
                                 }
 
-                                analysisResult?.let { res ->
-                                    HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
-                                    Text(
-                                        text = "Распознан: ${res.styleDescription} • ${res.inkColorName}",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.primary
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                // Ink Color Selection
+                                Text("Цвет чернил ручки:", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    val colors = listOf(
+                                        "#1E3A8A" to "Синяя шариковая",
+                                        "#212121" to "Черная гелевая",
+                                        "#4A148C" to "Фиолетовая",
+                                        "#1B5E20" to "Зеленая паста"
                                     )
+                                    colors.forEach { (hex, name) ->
+                                        Surface(
+                                            color = Color(android.graphics.Color.parseColor(hex)),
+                                            shape = CircleShape,
+                                            modifier = Modifier
+                                                .size(36.dp)
+                                                .border(
+                                                    width = if (selectedInkHex == hex) 3.dp else 1.dp,
+                                                    color = if (selectedInkHex == hex) MaterialTheme.colorScheme.primary else Color.LightGray,
+                                                    shape = CircleShape
+                                                )
+                                                .clickable {
+                                                    selectedInkHex = hex
+                                                    prefs.saveHandwritingSettingsSync(slant = penSlant, thickness = penThickness, spacing = letterSpacing, samplePath = null, inkColorHex = hex)
+                                                    Toast.makeText(context, name, Toast.LENGTH_SHORT).show()
+                                                }
+                                        ) {}
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(14.dp))
+
+                                Text(
+                                    text = "Тип соединений букв:",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    listOf("Слитный скорописный", "Полуслитный", "Раздельный").forEach { style ->
+                                        FilterChip(
+                                            selected = connectionStyle == style,
+                                            onClick = { connectionStyle = style },
+                                            label = { Text(style, fontSize = 11.sp) }
+                                        )
+                                    }
                                 }
                             }
                         }
+                        2 -> {
+                            // TAB 2: INTERACTIVE NOTEBOOK TESTING
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .verticalScroll(rememberScrollState())
+                            ) {
+                                Text(
+                                    text = "Проверьте ввод любого текста вашим реальным почерком:",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
 
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        // Live Preview Card with interactive text testing
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f))
-                        ) {
-                            Column(modifier = Modifier.padding(12.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text(
-                                        text = "Предпросмотр почерка:",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    if (hasCustomFont || analysisResult != null) {
-                                        Surface(
-                                            color = MaterialTheme.colorScheme.primary,
-                                            shape = RoundedCornerShape(8.dp)
-                                        ) {
-                                            Text(
-                                                text = "✓ Почерк активен",
-                                                color = MaterialTheme.colorScheme.onPrimary,
-                                                fontSize = 10.sp,
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                            )
-                                        }
-                                    }
-                                }
-                                Spacer(modifier = Modifier.height(6.dp))
-                                val digitizedFont = if (hasCustomFont) {
-                                    NoteFontHelper.getFontFamily(context, NoteFontFamily.CUSTOM_DIGITIZED)
-                                } else {
-                                    NoteFontHelper.getFontFamily(context, NoteFontFamily.HANDWRITING_MARCK)
-                                }
+                                Spacer(modifier = Modifier.height(8.dp))
 
                                 OutlinedTextField(
-                                    value = previewSampleText,
-                                    onValueChange = { previewSampleText = it },
-                                    label = { Text("Попробуйте ввести русский текст своим почерком:", fontSize = 11.sp) },
-                                    textStyle = LocalTextStyle.current.copy(
-                                        fontFamily = digitizedFont,
-                                        fontSize = 19.sp,
-                                        lineHeight = 27.sp,
-                                        letterSpacing = (letterSpacing * 0.5f).sp,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    ),
+                                    value = testInputText,
+                                    onValueChange = { testInputText = it },
+                                    label = { Text("Введите проверочный русский текст:") },
                                     modifier = Modifier.fillMaxWidth()
                                 )
-                            }
-                        }
-                    }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                                Spacer(modifier = Modifier.height(12.dp))
 
-                    Button(
-                        onClick = {
-                            // Apply digitized handwriting font
-                            Toast.makeText(context, "Оцифрованный почерк применён к заметке!", Toast.LENGTH_SHORT).show()
-                            onFontApplied(NoteFontFamily.CUSTOM_DIGITIZED)
-                            onDismissRequest()
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Filled.Check, null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Применить и перейти к заметке")
-                    }
+                                Text(
+                                    text = "Отображение на тетрадном листе:",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold
+                                )
 
-                } else if (selectedTab == 1) {
-                    // TAB 1: DRAW ON SCREEN
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .verticalScroll(rememberScrollState())
-                    ) {
-                        Text(
-                            text = "Напишите пальцем или стилусом образец своего почерка на строках:",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                                Spacer(modifier = Modifier.height(6.dp))
 
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        // Guided Digital Handwriting Canvas
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(160.dp)
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(Color(0xFFFCFBF7))
-                                .border(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
-                                .pointerInput(Unit) {
-                                    detectDragGestures(
-                                        onDragStart = { offset ->
-                                            currentStroke = listOf(offset)
-                                        },
-                                        onDrag = { change, _ ->
-                                            change.consume()
-                                            currentStroke = currentStroke + change.position
-                                        },
-                                        onDragEnd = {
-                                            if (currentStroke.isNotEmpty()) {
-                                                strokes.add(currentStroke)
-                                                currentStroke = emptyList()
-                                            }
-                                        }
-                                    )
+                                val customFont = NoteFontHelper.getFontFamily(context, NoteFontFamily.CUSTOM_DIGITIZED)
+                                val inkColor = try {
+                                    Color(android.graphics.Color.parseColor(selectedInkHex))
+                                } catch (e: Exception) {
+                                    Color(0xFF1E3A8A)
                                 }
-                        ) {
-                            Canvas(modifier = Modifier.fillMaxSize()) {
-                                val baselineY = size.height * 0.65f
-                                val waistlineY = size.height * 0.38f
-                                val ascenderY = size.height * 0.15f
 
-                                drawLine(Color(0xFF64748B).copy(alpha = 0.45f), Offset(0f, baselineY), Offset(size.width, baselineY), 2f)
-                                drawLine(Color(0xFF94A3B8).copy(alpha = 0.35f), Offset(0f, waistlineY), Offset(size.width, waistlineY), 1.5f)
-                                drawLine(Color(0xFFCBD5E1).copy(alpha = 0.35f), Offset(0f, ascenderY), Offset(size.width, ascenderY), 1f)
-
-                                val strokeColor = Color(0xFF1E293B)
-                                for (stroke in strokes) {
-                                    if (stroke.size > 1) {
-                                        val path = Path().apply {
-                                            moveTo(stroke.first().x, stroke.first().y)
-                                            for (i in 1 until stroke.size) {
-                                                lineTo(stroke[i].x, stroke[i].y)
-                                            }
-                                        }
-                                        drawPath(path, strokeColor, style = Stroke(penThickness * 1.5f, cap = StrokeCap.Round, join = StrokeJoin.Round))
-                                    }
-                                }
-                                if (currentStroke.size > 1) {
-                                    val path = Path().apply {
-                                        moveTo(currentStroke.first().x, currentStroke.first().y)
-                                        for (i in 1 until currentStroke.size) {
-                                            lineTo(currentStroke[i].x, currentStroke[i].y)
-                                        }
-                                    }
-                                    drawPath(path, strokeColor, style = Stroke(penThickness * 1.5f, cap = StrokeCap.Round, join = StrokeJoin.Round))
-                                }
-                            }
-
-                            IconButton(
-                                onClick = { strokes.clear() },
-                                modifier = Modifier
-                                    .align(Alignment.TopEnd)
-                                    .padding(8.dp)
-                                    .size(32.dp)
-                                    .background(Color.White.copy(alpha = 0.8f), CircleShape)
-                            ) {
-                                Icon(Icons.Filled.Delete, contentDescription = "Очистить холст", modifier = Modifier.size(16.dp))
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(14.dp))
-
-                        Button(
-                            onClick = {
-                                Toast.makeText(context, "Образцы почерка сохранены и применены!", Toast.LENGTH_SHORT).show()
-                                onFontApplied(NoteFontFamily.HANDWRITING_CAVEAT)
-                                onDismissRequest()
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(Icons.Filled.Check, null)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Применить почерк с холста")
-                        }
-                    }
-                } else {
-                    // TAB 2: IMPORT TTF / OTF FONT FILE
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .verticalScroll(rememberScrollState())
-                    ) {
-                        Text(
-                            text = "Загрузите файл шрифта (.ttf или .otf), например созданный в Calligraphr или скачанный из интернета.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-
-                        Spacer(modifier = Modifier.height(14.dp))
-
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (hasCustomFont) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-                            )
-                        ) {
-                            Column(modifier = Modifier.padding(16.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        imageVector = if (hasCustomFont) Icons.Filled.CheckCircle else Icons.Filled.FontDownload,
-                                        contentDescription = null,
-                                        tint = if (hasCustomFont) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    Spacer(modifier = Modifier.width(10.dp))
-                                    Column {
+                                Surface(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(min = 160.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = Color(0xFFFAF9F6),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                                    tonalElevation = 2.dp
+                                ) {
+                                    Column(modifier = Modifier.padding(14.dp)) {
                                         Text(
-                                            text = if (hasCustomFont) "Свой шрифт активен" else "Шрифт не выбран",
-                                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                                            text = testInputText,
+                                            fontFamily = customFont,
+                                            fontSize = 20.sp,
+                                            lineHeight = 28.sp,
+                                            letterSpacing = (letterSpacing * 0.5f).sp,
+                                            color = inkColor
                                         )
-                                        if (hasCustomFont) {
-                                            Text(
-                                                text = "Файл: active_font.ttf (${customFontFile.length() / 1024} КБ)",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
                                     }
                                 }
-
-                                if (hasCustomFont) {
-                                    Spacer(modifier = Modifier.height(10.dp))
-                                    HorizontalDivider()
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Text("Пример начертания:", style = MaterialTheme.typography.labelSmall)
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    val customFamily = NoteFontHelper.getFontFamily(context, NoteFontFamily.CUSTOM_DIGITIZED)
-                                    Text(
-                                        text = "Съешь ещё этих мягких французских булок, да выпей же чаю. 1234567890",
-                                        fontFamily = customFamily,
-                                        fontSize = 18.sp,
-                                        lineHeight = 26.sp
-                                    )
+                            }
+                        }
+                        3 -> {
+                            // TAB 3: TTF / OTF FILE IMPORT
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .verticalScroll(rememberScrollState()),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Icon(Icons.Filled.FolderOpen, null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.primary)
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "Импорт готового файла шрифта (.ttf / .otf)",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = "Если у вас есть сгенерированный шрифт вашего почерка (например, из Calligraphr), вы можете загрузить его напрямую.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Button(
+                                    onClick = { fontFilePickerLauncher.launch(arrayOf("font/ttf", "font/otf", "application/x-font-ttf", "application/octet-stream", "*/*")) },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(Icons.Filled.UploadFile, null)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Выбрать файл шрифта (.ttf / .otf)")
                                 }
                             }
-                        }
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        FilledTonalButton(
-                            onClick = { filePickerLauncher.launch(arrayOf("*/*")) },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(Icons.Filled.FolderOpen, contentDescription = null)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Выбрать файл шрифта (.ttf / .otf)...")
-                        }
-
-                        if (hasCustomFont) {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            OutlinedButton(
-                                onClick = {
-                                    if (customFontFile.exists()) customFontFile.delete()
-                                    hasCustomFont = false
-                                    Toast.makeText(context, "Пользовательский шрифт сброшен", Toast.LENGTH_SHORT).show()
-                                },
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Icon(Icons.Filled.Delete, null)
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Удалить файл шрифта")
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    if (hasCustomFont) {
-                        Button(
-                            onClick = {
-                                onFontApplied(NoteFontFamily.CUSTOM_DIGITIZED)
-                                onDismissRequest()
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(Icons.Filled.Check, null)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Применить файл шрифта")
                         }
                     }
                 }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Bottom Primary Action Button
+                Button(
+                    onClick = {
+                        prefs.setDefaultNoteFontSync(NoteFontFamily.CUSTOM_DIGITIZED.id)
+                        onFontApplied(NoteFontFamily.CUSTOM_DIGITIZED)
+                        Toast.makeText(context, "Оцифрованный почерк активирован для заметок!", Toast.LENGTH_SHORT).show()
+                        onDismissRequest()
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Filled.Check, null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Применить мой почерк ко всем заметкам")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CharacterGridCell(
+    item: HandwritingGlyphItem,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .size(64.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(12.dp),
+        color = if (item.isDigitized) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+        border = androidx.compose.foundation.BorderStroke(
+            width = if (item.isDigitized) 1.5.dp else 1.dp,
+            color = if (item.isDigitized) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+        )
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            if (item.isDigitized && item.imagePath != null && File(item.imagePath).exists()) {
+                AsyncImage(
+                    model = File(item.imagePath),
+                    contentDescription = item.title,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(6.dp),
+                    contentScale = ContentScale.Fit
+                )
+                // Small check badge in corner
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(3.dp)
+                        .size(14.dp)
+                        .background(MaterialTheme.colorScheme.primary, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Filled.Check,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(10.dp)
+                    )
+                }
+            } else {
+                Text(
+                    text = item.char.toString(),
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                )
             }
         }
     }

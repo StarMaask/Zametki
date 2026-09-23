@@ -223,6 +223,26 @@ class UserPreferencesManager(private val context: Context) {
         syncPrefs.edit().putString("default_note_font", fontId).apply()
     }
 
+    fun setCustomFontPathSync(path: String?) {
+        syncPrefs.edit().putString("custom_font_path", path).apply()
+    }
+
+    fun saveHandwritingSettingsSync(
+        slant: Float,
+        thickness: Float,
+        spacing: Float,
+        samplePath: String?,
+        inkColorHex: String?
+    ) {
+        syncPrefs.edit()
+            .putFloat("handwriting_slant", slant)
+            .putFloat("handwriting_thickness", thickness)
+            .putFloat("handwriting_spacing", spacing)
+            .putString("handwriting_sample_path", samplePath)
+            .putString("handwriting_ink_color", inkColorHex)
+            .apply()
+    }
+
     val speechLanguageFlow: Flow<String> = context.dataStore.data.map { prefs ->
         prefs[KEY_SPEECH_LANGUAGE] ?: syncPrefs.getString("speech_language", "auto") ?: "auto"
     }
