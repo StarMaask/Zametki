@@ -26,6 +26,8 @@ class UserPreferencesManager(private val context: Context) {
     private val KEY_PIN_CODE = stringPreferencesKey("pin_code")
     private val KEY_PIN_ENABLED = booleanPreferencesKey("pin_enabled")
     private val KEY_BIOMETRIC_ENABLED = booleanPreferencesKey("biometric_enabled")
+    private val KEY_IS_GRID_LAYOUT = booleanPreferencesKey("is_grid_layout")
+    private val KEY_CUSTOM_FONT_PATH = stringPreferencesKey("custom_font_path")
 
     val fontSizeFlow: Flow<FontSizeScale> = context.dataStore.data.map { prefs ->
         val name = prefs[KEY_FONT_SIZE] ?: FontSizeScale.NORMAL.name
@@ -57,6 +59,14 @@ class UserPreferencesManager(private val context: Context) {
         }
     }
 
+    val isGridLayoutFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[KEY_IS_GRID_LAYOUT] ?: true
+    }
+
+    val customFontPathFlow: Flow<String?> = context.dataStore.data.map { prefs ->
+        prefs[KEY_CUSTOM_FONT_PATH]
+    }
+
     suspend fun setTheme(theme: AppThemePreset) {
         context.dataStore.edit { prefs ->
             prefs[KEY_THEME] = theme.name
@@ -84,6 +94,22 @@ class UserPreferencesManager(private val context: Context) {
     suspend fun setBiometricEnabled(enabled: Boolean) {
         context.dataStore.edit { prefs ->
             prefs[KEY_BIOMETRIC_ENABLED] = enabled
+        }
+    }
+
+    suspend fun setGridLayout(isGrid: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_IS_GRID_LAYOUT] = isGrid
+        }
+    }
+
+    suspend fun setCustomFontPath(path: String?) {
+        context.dataStore.edit { prefs ->
+            if (path == null) {
+                prefs.remove(KEY_CUSTOM_FONT_PATH)
+            } else {
+                prefs[KEY_CUSTOM_FONT_PATH] = path
+            }
         }
     }
 }

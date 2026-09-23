@@ -40,9 +40,14 @@ data class NoteEditorUiState(
     val canRedo: Boolean = false,
     val isSaved: Boolean = false,
     val pageFormat: PageFormat = PageFormat.BOOK,
+    val fontFormat: String = com.example.domain.model.NoteFontFamily.DEFAULT.id,
+    val textColorHex: String = "#1C1B1F",
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 ) {
+    val noteFont: com.example.domain.model.NoteFontFamily
+        get() = com.example.domain.model.NoteFontFamily.fromId(fontFormat)
+
     val wordCount: Int
         get() = if (content.isBlank()) 0 else content.trim().split(Regex("\\s+")).filter { it.isNotBlank() }.size
 
@@ -79,7 +84,9 @@ data class NoteEditorUiState(
             audioUri = audioUri,
             folder = folder,
             isLocked = isLocked,
-            pageFormat = pageFormat.name
+            pageFormat = pageFormat.name,
+            fontFormat = fontFormat,
+            textColorHex = textColorHex
         )
     }
 }
@@ -142,12 +149,29 @@ class NoteEditorViewModel(
                     isLocked = note.isLocked,
                     isChecklistMode = parsedChecklist.isNotEmpty(),
                     pageFormat = try { PageFormat.valueOf(note.pageFormat) } catch (_: Exception) { PageFormat.BOOK },
+                    fontFormat = note.fontFormat,
+                    textColorHex = note.textColorHex,
                     createdAt = note.createdAt,
                     updatedAt = note.updatedAt
                 )
             }
             lastRecordedText = note.content
         }
+    }
+
+    fun onFontFormatChange(font: com.example.domain.model.NoteFontFamily) {
+        _uiState.update { it.copy(fontFormat = font.id) }
+    }
+
+    fun onTextColorChange(hex: String) {
+        _uiState.update { it.copy(textColorHex = hex) }
+    }
+
+    fun appendSpeechText(spokenText: String) {
+        val previous = _uiState.value.content
+        val separator = if (previous.isNotBlank() && !previous.endsWith("\n") && !previous.endsWith(" ")) " " else ""
+        val updated = previous + separator + spokenText
+        onContentChange(updated)
     }
 
     fun onPageFormatChange(format: PageFormat) {

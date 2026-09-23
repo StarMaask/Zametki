@@ -20,8 +20,13 @@ data class Note(
     val audioUri: String? = null,
     val folder: String? = null,
     val isLocked: Boolean = false,
-    val pageFormat: String = PageFormat.BOOK.name
+    val pageFormat: String = PageFormat.BOOK.name,
+    val fontFormat: String = NoteFontFamily.DEFAULT.id,
+    val textColorHex: String = "#1C1B1F"
 ) {
     val format: PageFormat
         get() = try { PageFormat.valueOf(pageFormat) } catch (_: Exception) { PageFormat.BOOK }
+
+    val noteFont: NoteFontFamily
+        get() = NoteFontFamily.fromId(fontFormat)
 }

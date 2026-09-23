@@ -2,6 +2,7 @@ package com.example.presentation.screens.notes_list
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.data.preferences.UserPreferencesManager
 import com.example.domain.model.Note
 import com.example.domain.repository.NoteRepository
 import kotlinx.coroutines.flow.*
@@ -28,7 +29,8 @@ data class NotesListUiState(
 )
 
 class NotesListViewModel(
-    private val repository: NoteRepository
+    private val repository: NoteRepository,
+    private val preferencesManager: UserPreferencesManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(NotesListUiState())
@@ -37,6 +39,15 @@ class NotesListViewModel(
     init {
         loadNotes()
         loadFolders()
+        observeLayoutMode()
+    }
+
+    private fun observeLayoutMode() {
+        viewModelScope.launch {
+            preferencesManager.isGridLayoutFlow.collect { isGrid ->
+                _uiState.update { it.copy(isGridLayout = isGrid) }
+            }
+        }
     }
 
     private fun loadNotes() {
@@ -131,7 +142,10 @@ class NotesListViewModel(
     }
 
     fun toggleLayout() {
-        _uiState.update { it.copy(isGridLayout = !it.isGridLayout) }
+        viewModelScope.launch {
+            val next = !_uiState.value.isGridLayout
+            preferencesManager.setGridLayout(next)
+        }
     }
 
     fun togglePin(note: Note) {

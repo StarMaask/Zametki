@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [NoteEntity::class],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class NoteDatabase : RoomDatabase() {
@@ -35,6 +35,15 @@ abstract class NoteDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                try {
+                    db.execSQL("ALTER TABLE notes ADD COLUMN fontFormat TEXT NOT NULL DEFAULT 'DEFAULT'")
+                    db.execSQL("ALTER TABLE notes ADD COLUMN textColorHex TEXT NOT NULL DEFAULT '#1C1B1F'")
+                } catch (_: Exception) {}
+            }
+        }
+
         fun getInstance(context: Context): NoteDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -42,7 +51,7 @@ abstract class NoteDatabase : RoomDatabase() {
                     NoteDatabase::class.java,
                     "notes_database"
                 )
-                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance
@@ -51,4 +60,3 @@ abstract class NoteDatabase : RoomDatabase() {
         }
     }
 }
-

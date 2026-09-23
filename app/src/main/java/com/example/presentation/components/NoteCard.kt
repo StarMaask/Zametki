@@ -50,6 +50,14 @@ fun NoteCard(
     val contentColor = if (isDark) Color.White else Color(0xFF1E293B)
     val secondaryColor = if (isDark) Color(0xFFCBD5E1) else Color(0xFF64748B)
 
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val noteFontFamily = com.example.util.NoteFontHelper.getFontFamily(context, note.noteFont)
+    val customTextColor = try {
+        if (!isDark && note.textColorHex.isNotBlank() && note.textColorHex != "#1C1B1F") {
+            Color(android.graphics.Color.parseColor(note.textColorHex))
+        } else contentColor
+    } catch (_: Exception) { contentColor }
+
     Card(
         modifier = modifier
             .fillMaxWidth()
@@ -95,7 +103,8 @@ fun NoteCard(
                     Text(
                         text = note.title,
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        color = contentColor,
+                        fontFamily = noteFontFamily,
+                        color = customTextColor,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
@@ -175,7 +184,8 @@ fun NoteCard(
                     Text(
                         text = note.content,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = contentColor,
+                        fontFamily = noteFontFamily,
+                        color = customTextColor,
                         maxLines = 8,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -185,7 +195,8 @@ fun NoteCard(
                 Text(
                     text = note.content,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = contentColor,
+                    fontFamily = noteFontFamily,
+                    color = customTextColor,
                     maxLines = 8,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -257,6 +268,21 @@ fun NoteCard(
                                     fontWeight = FontWeight.Medium
                                 )
                             }
+                        }
+                    }
+
+                    if (note.noteFont != com.example.domain.model.NoteFontFamily.DEFAULT) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.15f)
+                        ) {
+                            Text(
+                                text = if (note.noteFont.isHandwriting) "✍️ ${note.noteFont.title.substringBefore(" ")}" else "🔤 ${note.noteFont.title.substringBefore(" ")}",
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.tertiary,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
                         }
                     }
 

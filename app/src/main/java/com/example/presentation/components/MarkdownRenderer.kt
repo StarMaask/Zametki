@@ -14,11 +14,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -27,7 +29,8 @@ import androidx.compose.ui.unit.sp
 fun MarkdownRenderer(
     markdownText: String,
     modifier: Modifier = Modifier,
-    textColor: Color = MaterialTheme.colorScheme.onSurface
+    textColor: Color = MaterialTheme.colorScheme.onSurface,
+    fontFamily: FontFamily = FontFamily.Default
 ) {
     val lines = markdownText.lines()
     var inCodeBlock = false
@@ -64,6 +67,7 @@ fun MarkdownRenderer(
                         text = parseInlineMarkdown(trimmed.removePrefix("### "), textColor),
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                         color = MaterialTheme.colorScheme.primary,
+                        fontFamily = fontFamily,
                         modifier = Modifier.padding(top = 8.dp, bottom = 2.dp)
                     )
                 }
@@ -72,6 +76,7 @@ fun MarkdownRenderer(
                         text = parseInlineMarkdown(trimmed.removePrefix("## "), textColor),
                         style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                         color = MaterialTheme.colorScheme.primary,
+                        fontFamily = fontFamily,
                         modifier = Modifier.padding(top = 10.dp, bottom = 2.dp)
                     )
                 }
@@ -80,6 +85,7 @@ fun MarkdownRenderer(
                         text = parseInlineMarkdown(trimmed.removePrefix("# "), textColor),
                         style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.ExtraBold),
                         color = MaterialTheme.colorScheme.primary,
+                        fontFamily = fontFamily,
                         modifier = Modifier.padding(top = 12.dp, bottom = 4.dp)
                     )
                 }
@@ -94,13 +100,14 @@ fun MarkdownRenderer(
                         Box(
                             modifier = Modifier
                                 .width(4.dp)
-                                .height(24.dp)
+                                .height(26.dp)
                                 .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp))
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = parseInlineMarkdown(trimmed.removePrefix("> "), textColor.copy(alpha = 0.85f)),
-                            style = MaterialTheme.typography.bodyMedium.copy(fontStyle = FontStyle.Italic)
+                            style = MaterialTheme.typography.bodyMedium.copy(fontStyle = FontStyle.Italic),
+                            fontFamily = fontFamily
                         )
                     }
                 }
@@ -121,7 +128,10 @@ fun MarkdownRenderer(
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = parseInlineMarkdown(taskText, if (isChecked) textColor.copy(alpha = 0.5f) else textColor),
-                            style = MaterialTheme.typography.bodyMedium
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                textDecoration = if (isChecked) TextDecoration.LineThrough else TextDecoration.None
+                            ),
+                            fontFamily = fontFamily
                         )
                     }
                 }
@@ -142,6 +152,7 @@ fun MarkdownRenderer(
                         Text(
                             text = parseInlineMarkdown(bulletText, textColor),
                             style = MaterialTheme.typography.bodyMedium,
+                            fontFamily = fontFamily,
                             modifier = Modifier.weight(1f)
                         )
                     }
@@ -159,17 +170,15 @@ fun MarkdownRenderer(
                     Spacer(modifier = Modifier.height(6.dp))
                 }
                 else -> {
+                    // Regular paragraph text
                     Text(
                         text = parseInlineMarkdown(line, textColor),
-                        style = MaterialTheme.typography.bodyLarge,
-                        lineHeight = 22.sp
+                        style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 24.sp),
+                        fontFamily = fontFamily,
+                        color = textColor
                     )
                 }
             }
-        }
-
-        if (inCodeBlock && codeBlockLines.isNotEmpty()) {
-            CodeBlock(code = codeBlockLines.joinToString("\n"))
         }
     }
 }
@@ -177,16 +186,17 @@ fun MarkdownRenderer(
 @Composable
 private fun CodeBlock(code: String) {
     Surface(
-        shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp)),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
     ) {
         Box(
             modifier = Modifier
                 .horizontalScroll(rememberScrollState())
-                .padding(10.dp)
+                .padding(12.dp)
         ) {
             Text(
                 text = code,
@@ -198,12 +208,30 @@ private fun CodeBlock(code: String) {
     }
 }
 
-fun parseInlineMarkdown(text: String, defaultColor: Color): androidx.compose.ui.text.AnnotatedString {
+fun parseInlineMarkdown(text: String, defaultColor: Color): AnnotatedString {
     return buildAnnotatedString {
         var i = 0
         while (i < text.length) {
+            // 1. Color tag [color=#HEX]text[/color]
+            if (text.startsWith("[color=#", i)) {
+                val endTag = text.indexOf("[/color]", i)
+                val closeBracket = text.indexOf(']', i)
+                if (endTag != -1 && closeBracket != -1 && closeBracket < endTag) {
+                    val hex = text.substring(i + 7, closeBracket)
+                    val inner = text.substring(closeBracket + 1, endTag)
+                    try {
+                        val parsedColor = Color(android.graphics.Color.parseColor(hex))
+                        withStyle(SpanStyle(color = parsedColor)) {
+                            append(inner)
+                        }
+                        i = endTag + 8
+                        continue
+                    } catch (_: Exception) {}
+                }
+            }
+
+            // 2. Bold (**text**)
             if (i + 1 < text.length && text[i] == '*' && text[i + 1] == '*') {
-                // Bold
                 val end = text.indexOf("**", i + 2)
                 if (end != -1) {
                     withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = defaultColor)) {
@@ -212,8 +240,58 @@ fun parseInlineMarkdown(text: String, defaultColor: Color): androidx.compose.ui.
                     i = end + 2
                     continue
                 }
-            } else if (text[i] == '*') {
-                // Italic
+            }
+
+            // 3. Strikethrough (~~text~~)
+            if (i + 1 < text.length && text[i] == '~' && text[i + 1] == '~') {
+                val end = text.indexOf("~~", i + 2)
+                if (end != -1) {
+                    withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough, color = defaultColor)) {
+                        append(text.substring(i + 2, end))
+                    }
+                    i = end + 2
+                    continue
+                }
+            }
+
+            // 4. Underline (<u>text</u>)
+            if (text.startsWith("<u>", i, ignoreCase = true)) {
+                val end = text.indexOf("</u>", i + 3, ignoreCase = true)
+                if (end != -1) {
+                    withStyle(SpanStyle(textDecoration = TextDecoration.Underline, color = defaultColor)) {
+                        append(text.substring(i + 3, end))
+                    }
+                    i = end + 4
+                    continue
+                }
+            }
+
+            // 5. Underline (__text__)
+            if (i + 1 < text.length && text[i] == '_' && text[i + 1] == '_') {
+                val end = text.indexOf("__", i + 2)
+                if (end != -1) {
+                    withStyle(SpanStyle(textDecoration = TextDecoration.Underline, color = defaultColor)) {
+                        append(text.substring(i + 2, end))
+                    }
+                    i = end + 2
+                    continue
+                }
+            }
+
+            // 6. Highlight (==text==)
+            if (i + 1 < text.length && text[i] == '=' && text[i + 1] == '=') {
+                val end = text.indexOf("==", i + 2)
+                if (end != -1) {
+                    withStyle(SpanStyle(background = Color(0xFFFEF08A), color = Color(0xFF1E293B))) {
+                        append(" ${text.substring(i + 2, end)} ")
+                    }
+                    i = end + 2
+                    continue
+                }
+            }
+
+            // 7. Italic (*text*)
+            if (text[i] == '*') {
                 val end = text.indexOf('*', i + 1)
                 if (end != -1) {
                     withStyle(SpanStyle(fontStyle = FontStyle.Italic, color = defaultColor)) {
@@ -222,8 +300,10 @@ fun parseInlineMarkdown(text: String, defaultColor: Color): androidx.compose.ui.
                     i = end + 1
                     continue
                 }
-            } else if (text[i] == '`') {
-                // Inline code
+            }
+
+            // 8. Inline code (`text`)
+            if (text[i] == '`') {
                 val end = text.indexOf('`', i + 1)
                 if (end != -1) {
                     withStyle(
@@ -239,6 +319,7 @@ fun parseInlineMarkdown(text: String, defaultColor: Color): androidx.compose.ui.
                     continue
                 }
             }
+
             append(text[i])
             i++
         }

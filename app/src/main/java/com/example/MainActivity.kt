@@ -156,7 +156,7 @@ class MainActivity : FragmentActivity() {
                             startDestination = Screen.NotesList.route
                         ) {
                             composable(Screen.NotesList.route) {
-                                val viewModel = remember { NotesListViewModel(repository) }
+                                val viewModel = remember { NotesListViewModel(repository, preferencesManager) }
                                 NotesListScreen(
                                     viewModel = viewModel,
                                     onNoteClick = { noteId ->

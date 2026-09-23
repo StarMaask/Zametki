@@ -7,12 +7,14 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.speech.RecognizerIntent
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -26,10 +28,14 @@ import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import kotlinx.coroutines.launch
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
+import androidx.compose.material.icons.automirrored.filled.Redo
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.*
@@ -48,22 +54,28 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
+import com.example.domain.model.NoteFontFamily
 import com.example.domain.model.NoteTemplate
 import com.example.domain.model.PageFormat
 import com.example.presentation.components.AudioPlaybackCard
 import com.example.presentation.components.AudioRecordDialog
+import com.example.presentation.components.CustomFontDigitizerDialog
 import com.example.presentation.components.DrawingCanvasDialog
+import com.example.presentation.components.MarkdownRenderer
 import com.example.presentation.components.NotebookPalette
 import com.example.presentation.components.NotebookPaperCanvas
 import com.example.presentation.components.NoteInfoDialog
 import com.example.presentation.components.NoteTemplateDialog
 import com.example.presentation.components.PageFormatSelectorDialog
+import com.example.presentation.components.ShareNoteBottomSheet
 import com.example.presentation.components.TooltipIconButton
 import com.example.presentation.components.getFontFamily
 import com.example.presentation.components.getInkColor
 import com.example.presentation.components.getPaperColor
 import com.example.presentation.components.getPlaceholderColor
 import com.example.ui.theme.NoteColors
+import com.example.util.NoteFontHelper
+import com.example.util.RichMarkdownVisualTransformation
 import com.example.util.ShareExportUtil
 import java.text.SimpleDateFormat
 import java.util.*
@@ -91,6 +103,20 @@ fun NoteEditorScreen(
     var showTopMenu by remember { mutableStateOf(false) }
     var showTemplateDialog by remember { mutableStateOf(false) }
     var showPageFormatDialog by remember { mutableStateOf(false) }
+    var showShareSheet by remember { mutableStateOf(false) }
+    var showFontDigitizerDialog by remember { mutableStateOf(false) }
+    var showTextColorMenu by remember { mutableStateOf(false) }
+    var showFontFamilyMenu by remember { mutableStateOf(false) }
+
+    var contentTextFieldValue by remember {
+        mutableStateOf(TextFieldValue(state.content, TextRange(state.content.length)))
+    }
+
+    LaunchedEffect(state.content) {
+        if (contentTextFieldValue.text != state.content) {
+            contentTextFieldValue = TextFieldValue(state.content, TextRange(state.content.length))
+        }
+    }
 
     var newTagInput by remember { mutableStateOf("") }
     var folderInput by remember { mutableStateOf("") }
@@ -114,11 +140,133 @@ fun NoteEditorScreen(
         contract = ActivityResultContracts.RequestPermission()
     ) { _ -> }
 
+    val speechRecognizerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            val spoken = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
+            if (!spoken.isNullOrBlank()) {
+                val selection = contentTextFieldValue.selection
+                val text = contentTextFieldValue.text
+                val insertPos = selection.start
+                val separator = if (insertPos > 0 && !text[insertPos - 1].isWhitespace()) " " else ""
+                val newText = text.substring(0, insertPos) + separator + spoken + " " + text.substring(insertPos)
+                val newCursor = insertPos + separator.length + spoken.length + 1
+                contentTextFieldValue = TextFieldValue(newText, TextRange(newCursor))
+                viewModel.onContentChange(newText)
+                Toast.makeText(context, "Речь распознана: $spoken", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    val recordAudioPermissionForSpeechLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag())
+                putExtra(RecognizerIntent.EXTRA_PROMPT, "Говорите — голос преобразуется в текст заметки...")
+            }
+            try {
+                speechRecognizerLauncher.launch(intent)
+            } catch (_: Exception) {
+                Toast.makeText(context, "Распознавание речи недоступно на данном устройстве", Toast.LENGTH_SHORT).show()
+            }
+        } else {
+            Toast.makeText(context, "Требуется доступ к микрофону для распознавания речи", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun startSpeechToText() {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag())
+                putExtra(RecognizerIntent.EXTRA_PROMPT, "Говорите — голос преобразуется в текст заметки...")
+            }
+            try {
+                speechRecognizerLauncher.launch(intent)
+            } catch (_: Exception) {
+                Toast.makeText(context, "Распознавание речи недоступно на данном устройстве", Toast.LENGTH_SHORT).show()
+            }
+        } else {
+            recordAudioPermissionForSpeechLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
+    fun applyFormatting(prefix: String, suffix: String = prefix) {
+        val selection = contentTextFieldValue.selection
+        val text = contentTextFieldValue.text
+        if (selection.start != selection.end) {
+            val start = minOf(selection.start, selection.end)
+            val end = maxOf(selection.start, selection.end)
+            val selected = text.substring(start, end)
+            val newText = text.substring(0, start) + prefix + selected + suffix + text.substring(end)
+            val newSelection = TextRange(start + prefix.length, end + prefix.length)
+            contentTextFieldValue = TextFieldValue(newText, newSelection)
+            viewModel.onContentChange(newText)
+        } else {
+            val insertPos = selection.start
+            val placeholder = when (prefix) {
+                "**" -> "жирный текст"
+                "*" -> "курсив"
+                "<u>" -> "подчеркнутый"
+                "~~" -> "зачеркнутый"
+                "# " -> "Заголовок"
+                "## " -> "Подзаголовок"
+                "• " -> "пункт списка"
+                "> " -> "цитата"
+                else -> "текст"
+            }
+            val inserted = prefix + placeholder + suffix
+            val newText = text.substring(0, insertPos) + inserted + text.substring(insertPos)
+            val newSelection = TextRange(insertPos + prefix.length, insertPos + prefix.length + placeholder.length)
+            contentTextFieldValue = TextFieldValue(newText, newSelection)
+            viewModel.onContentChange(newText)
+        }
+    }
+
+    fun applyColorToSelection(hexColor: String) {
+        val selection = contentTextFieldValue.selection
+        val text = contentTextFieldValue.text
+        val openTag = "[color=$hexColor]"
+        val closeTag = "[/color]"
+        if (selection.start != selection.end) {
+            val start = minOf(selection.start, selection.end)
+            val end = maxOf(selection.start, selection.end)
+            val selected = text.substring(start, end)
+            val newText = text.substring(0, start) + openTag + selected + closeTag + text.substring(end)
+            val newSelection = TextRange(start + openTag.length, end + openTag.length)
+            contentTextFieldValue = TextFieldValue(newText, newSelection)
+            viewModel.onContentChange(newText)
+        } else {
+            viewModel.onTextColorChange(hexColor)
+            Toast.makeText(context, "Цвет шрифта заметки установлен", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     val paperColor = getPaperColor(state.pageFormat, state.colorHex)
     val inkColor = getInkColor(state.pageFormat, paperColor)
     val placeholderColor = getPlaceholderColor(state.pageFormat, paperColor)
     val pageFontFamily = getFontFamily(state.pageFormat)
     val isDarkPaper = (paperColor.red * 0.299f + paperColor.green * 0.587f + paperColor.blue * 0.114f) < 0.45f
+
+    val activeFontFamily = if (state.noteFont != NoteFontFamily.DEFAULT) {
+        NoteFontHelper.getFontFamily(context, state.noteFont)
+    } else {
+        pageFontFamily
+    }
+
+    val activeInkColor = try {
+        if (state.textColorHex.isNotBlank() && state.textColorHex != "#1C1B1F" && !isDarkPaper && state.pageFormat != PageFormat.BLUEPRINT) {
+            Color(android.graphics.Color.parseColor(state.textColorHex))
+        } else {
+            inkColor
+        }
+    } catch (_: Exception) {
+        inkColor
+    }
 
     BackHandler {
         viewModel.saveNote(context) {
@@ -158,6 +306,22 @@ fun NoteEditorScreen(
                         },
                         icon = Icons.Filled.Done,
                         tooltip = "Сохранить и выйти",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+
+                    // Markdown Preview / Edit Mode Toggle
+                    TooltipIconButton(
+                        onClick = { viewModel.toggleMarkdownPreview() },
+                        icon = if (state.isMarkdownPreview) Icons.Filled.Edit else Icons.Filled.Visibility,
+                        tooltip = if (state.isMarkdownPreview) "Режим редактирования" else "Предпросмотр Markdown и стилей",
+                        tint = if (state.isMarkdownPreview) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                    )
+
+                    // Share Button (Sheet with text, photo page, pdf, txt, copy)
+                    TooltipIconButton(
+                        onClick = { showShareSheet = true },
+                        icon = Icons.Filled.Share,
+                        tooltip = "Поделиться заметкой (текст, картинка, PDF)",
                         tint = MaterialTheme.colorScheme.primary
                     )
 
@@ -236,14 +400,40 @@ fun NoteEditorScreen(
                             DropdownMenuItem(
                                 text = {
                                     Column {
-                                        Text("Поделиться текстом")
-                                        Text("Отправить текст через мессенджеры", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text("Поделиться заметкой")
+                                        Text("Текст, листок блокнота (фото), PDF или TXT", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 },
                                 leadingIcon = { Icon(Icons.Filled.Share, null) },
                                 onClick = {
                                     showTopMenu = false
-                                    ShareExportUtil.shareAsText(context, state.toDomainNote())
+                                    showShareSheet = true
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = {
+                                    Column {
+                                        Text("Оцифровка и свой шрифт")
+                                        Text("Оцифровать почерк или загрузить TTF/OTF", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                },
+                                leadingIcon = { Icon(Icons.Filled.Gesture, null) },
+                                onClick = {
+                                    showTopMenu = false
+                                    showFontDigitizerDialog = true
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = {
+                                    Column {
+                                        Text("Звук в текст (Голосовой ввод)")
+                                        Text("Преобразовать произнесённую речь в текст", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                },
+                                leadingIcon = { Icon(Icons.Filled.RecordVoiceOver, null) },
+                                onClick = {
+                                    showTopMenu = false
+                                    startSpeechToText()
                                 }
                             )
                             DropdownMenuItem(
@@ -346,243 +536,533 @@ fun NoteEditorScreen(
                 shadowElevation = 8.dp,
                 color = MaterialTheme.colorScheme.surface
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.SpaceAround,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // 1. ВСТАВКА (Insert Dropdown Menu)
-                    Box {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    // 1. Верхняя панель: Быстрое форматирование и начертание шрифтов
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        // Жирный
+                        FilledTonalIconButton(
+                            onClick = { applyFormatting("**", "**") },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(Icons.Filled.FormatBold, contentDescription = "Жирный текст", modifier = Modifier.size(18.dp))
+                        }
+
+                        // Курсив
+                        FilledTonalIconButton(
+                            onClick = { applyFormatting("*", "*") },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(Icons.Filled.FormatItalic, contentDescription = "Курсив", modifier = Modifier.size(18.dp))
+                        }
+
+                        // Подчеркнутый
+                        FilledTonalIconButton(
+                            onClick = { applyFormatting("<u>", "</u>") },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(Icons.Filled.FormatUnderlined, contentDescription = "Подчёркивание", modifier = Modifier.size(18.dp))
+                        }
+
+                        // Зачеркнутый
+                        FilledTonalIconButton(
+                            onClick = { applyFormatting("~~", "~~") },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(Icons.Filled.FormatStrikethrough, contentDescription = "Зачёркивание", modifier = Modifier.size(18.dp))
+                        }
+
+                        // Выбор цвета текста (шрифта)
+                        Box {
+                            val activeHex = state.textColorHex
+                            val currentDotColor = try { Color(android.graphics.Color.parseColor(activeHex)) } catch (_: Exception) { MaterialTheme.colorScheme.primary }
+                            AssistChip(
+                                onClick = { showTextColorMenu = true },
+                                label = { Text("Цвет", fontSize = 12.sp) },
+                                leadingIcon = {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(14.dp)
+                                            .clip(CircleShape)
+                                            .background(currentDotColor)
+                                    )
+                                },
+                                modifier = Modifier.height(34.dp)
+                            )
+                            DropdownMenu(
+                                expanded = showTextColorMenu,
+                                onDismissRequest = { showTextColorMenu = false }
+                            ) {
+                                Text(
+                                    text = "Цвет шрифта (для выделения или всей заметки):",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                                )
+                                val textColors = listOf(
+                                    "#1C1B1F" to "Угольный чёрный",
+                                    "#1A56DB" to "Синий чернильный",
+                                    "#7E22CE" to "Королевский пурпурный",
+                                    "#DC2626" to "Карминный красный",
+                                    "#059669" to "Изумрудный зелёный",
+                                    "#EA580C" to "Янтарный оранжевый",
+                                    "#78350F" to "Тёплая сепия / Шоколад",
+                                    "#F8FAFC" to "Меловой белый"
+                                )
+                                textColors.forEach { (hex, name) ->
+                                    val swatch = try { Color(android.graphics.Color.parseColor(hex)) } catch (_: Exception) { Color.Black }
+                                    DropdownMenuItem(
+                                        text = { Text(name) },
+                                        leadingIcon = {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(20.dp)
+                                                    .clip(CircleShape)
+                                                    .background(swatch)
+                                            )
+                                        },
+                                        onClick = {
+                                            showTextColorMenu = false
+                                            applyColorToSelection(hex)
+                                        }
+                                    )
+                                }
+                            }
+                        }
+
+                        // Выбор начертания и шрифта (рукописный, печатный, оцифровка)
+                        Box {
+                            AssistChip(
+                                onClick = { showFontFamilyMenu = true },
+                                label = {
+                                    Text(
+                                        text = state.noteFont.title.substringBefore(" "),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = if (state.noteFont.isHandwriting) Icons.Filled.Gesture else Icons.Filled.FontDownload,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                },
+                                modifier = Modifier.height(34.dp)
+                            )
+                            DropdownMenu(
+                                expanded = showFontFamilyMenu,
+                                onDismissRequest = { showFontFamilyMenu = false }
+                            ) {
+                                Text(
+                                    text = "Шрифт заметки:",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                                )
+                                NoteFontFamily.values().forEach { font ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Column {
+                                                Text(font.title, fontWeight = if (font == state.noteFont) FontWeight.Bold else FontWeight.Normal)
+                                                Text(font.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+                                        },
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = if (font.isHandwriting) Icons.Filled.Gesture else Icons.Filled.TextFields,
+                                                contentDescription = null,
+                                                tint = if (font == state.noteFont) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        },
+                                        trailingIcon = if (font == state.noteFont) {
+                                            { Icon(Icons.Filled.Check, null, tint = MaterialTheme.colorScheme.primary) }
+                                        } else null,
+                                        onClick = {
+                                            showFontFamilyMenu = false
+                                            viewModel.onFontFormatChange(font)
+                                        }
+                                    )
+                                }
+                                HorizontalDivider()
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Оцифровать свой почерк...", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                            Text("Нарисовать образцы или загрузить TTF/OTF", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Brush, null, tint = MaterialTheme.colorScheme.primary) },
+                                    onClick = {
+                                        showFontFamilyMenu = false
+                                        showFontDigitizerDialog = true
+                                    }
+                                )
+                            }
+                        }
+
+                        // Звук в текст (Кнопка диктовки)
+                        FilledTonalButton(
+                            onClick = { startSpeechToText() },
+                            modifier = Modifier.height(34.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp)
+                        ) {
+                            Icon(Icons.Filled.Mic, contentDescription = "Звук в текст", modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Звук в текст", fontSize = 12.sp)
+                        }
+
+                        // Заголовок H1
+                        FilledTonalIconButton(
+                            onClick = { applyFormatting("# ", "") },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Text("H1", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+
+                        // Заголовок H2
+                        FilledTonalIconButton(
+                            onClick = { applyFormatting("## ", "") },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Text("H2", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                        }
+
+                        // Список
+                        FilledTonalIconButton(
+                            onClick = { applyFormatting("• ", "") },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.FormatListBulleted, contentDescription = "Список", modifier = Modifier.size(18.dp))
+                        }
+
+                        // Цитата
+                        FilledTonalIconButton(
+                            onClick = { applyFormatting("> ", "") },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(Icons.Filled.FormatQuote, contentDescription = "Цитата", modifier = Modifier.size(18.dp))
+                        }
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                    // 2. Нижняя строка действий
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceAround,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // 1. ВСТАВКА (Insert Dropdown Menu)
+                        Box {
+                            TooltipIconButton(
+                                onClick = { showInsertMenu = true },
+                                icon = Icons.Filled.AddCircleOutline,
+                                tooltip = "Вставить медиа или список",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            DropdownMenu(
+                                expanded = showInsertMenu,
+                                onDismissRequest = { showInsertMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Чек-лист задач")
+                                            Text("Создать список дел с галочками", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.CheckBox, null) },
+                                    onClick = {
+                                        showInsertMenu = false
+                                        viewModel.toggleChecklistMode()
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Звук в текст (Диктовка)")
+                                            Text("Голосовой ввод речи прямо в заметку", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.RecordVoiceOver, null) },
+                                    onClick = {
+                                        showInsertMenu = false
+                                        startSpeechToText()
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Фото / Изображение")
+                                            Text("Прикрепить картинку из галереи", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Image, null) },
+                                    onClick = {
+                                        showInsertMenu = false
+                                        imagePickerLauncher.launch("image/*")
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Рисунок от руки")
+                                            Text("Холст для эскизов и схем", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Brush, null) },
+                                    onClick = {
+                                        showInsertMenu = false
+                                        showDrawingDialog = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Голосовая запись")
+                                            Text("Записать аудио на диктофон", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Mic, null) },
+                                    onClick = {
+                                        showInsertMenu = false
+                                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                                            showAudioDialog = true
+                                        } else {
+                                            audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                        }
+                                    }
+                                )
+                            }
+                        }
+
+                        // 2. ФОРМАТИРОВАНИЕ (Formatting Dropdown Menu)
+                        Box {
+                            TooltipIconButton(
+                                onClick = { showFormatMenu = true },
+                                icon = Icons.Filled.TextFormat,
+                                tooltip = "Форматирование текста",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            DropdownMenu(
+                                expanded = showFormatMenu,
+                                onDismissRequest = { showFormatMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Жирный текст (**)")
+                                            Text("Выделение важного", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.FormatBold, null) },
+                                    onClick = {
+                                        showFormatMenu = false
+                                        applyFormatting("**", "**")
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Курсивный текст (*)")
+                                            Text("Наклонный шрифт", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.FormatItalic, null) },
+                                    onClick = {
+                                        showFormatMenu = false
+                                        applyFormatting("*", "*")
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Подчёркивание (<u>)")
+                                            Text("Линия под текстом", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.FormatUnderlined, null) },
+                                    onClick = {
+                                        showFormatMenu = false
+                                        applyFormatting("<u>", "</u>")
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Зачёркивание (~~)")
+                                            Text("Зачёркнутый текст", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.FormatStrikethrough, null) },
+                                    onClick = {
+                                        showFormatMenu = false
+                                        applyFormatting("~~", "~~")
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Заголовок (# )")
+                                            Text("Крупный заголовок раздела", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Title, null) },
+                                    onClick = {
+                                        showFormatMenu = false
+                                        applyFormatting("# ", "")
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Маркированный список (• )")
+                                            Text("Элемент перечисления", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.FormatListBulleted, null) },
+                                    onClick = {
+                                        showFormatMenu = false
+                                        applyFormatting("• ", "")
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Цитата (> )")
+                                            Text("Блок цитирования", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.FormatQuote, null) },
+                                    onClick = {
+                                        showFormatMenu = false
+                                        applyFormatting("> ", "")
+                                    }
+                                )
+                                HorizontalDivider()
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Сменить шрифт заметки")
+                                            Text("Печатный, рукописный, винтажный", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.FontDownload, null) },
+                                    onClick = {
+                                        showFormatMenu = false
+                                        showFontFamilyMenu = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Формат листа: ${state.pageFormat.title}")
+                                            Text("Книга, тетрадь в линейку или в клетку", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.AutoStories, null) },
+                                    onClick = {
+                                        showFormatMenu = false
+                                        showPageFormatDialog = true
+                                    }
+                                )
+                            }
+                        }
+
+                        // 3. ФОРМАТ ЛИСТА (Book / Ruled / Grid / Kraft / Vintage / etc.)
                         TooltipIconButton(
-                            onClick = { showInsertMenu = true },
-                            icon = Icons.Filled.AddCircleOutline,
-                            tooltip = "Вставить медиа или список",
+                            onClick = { showPageFormatDialog = true },
+                            icon = when (state.pageFormat) {
+                                PageFormat.BOOK -> Icons.Filled.AutoStories
+                                PageFormat.RULED -> Icons.Filled.FormatAlignJustify
+                                PageFormat.GRID -> Icons.Filled.BorderAll
+                                PageFormat.KRAFT -> Icons.Filled.Style
+                                PageFormat.VINTAGE -> Icons.Filled.Bookmark
+                                PageFormat.MIDNIGHT -> Icons.Filled.DarkMode
+                                PageFormat.BLUEPRINT -> Icons.Filled.Edit
+                                PageFormat.BLANK -> Icons.Filled.Description
+                            },
+                            tooltip = "Формат листа: ${state.pageFormat.title}",
                             tint = MaterialTheme.colorScheme.primary
                         )
-                        DropdownMenu(
-                            expanded = showInsertMenu,
-                            onDismissRequest = { showInsertMenu = false }
-                        ) {
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text("Чек-лист задач")
-                                        Text("Создать список дел с галочками", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                },
-                                leadingIcon = { Icon(Icons.Filled.CheckBox, null) },
-                                onClick = {
-                                    showInsertMenu = false
-                                    viewModel.toggleChecklistMode()
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text("Фото / Изображение")
-                                        Text("Прикрепить картинку из галереи", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                },
-                                leadingIcon = { Icon(Icons.Filled.Image, null) },
-                                onClick = {
-                                    showInsertMenu = false
-                                    imagePickerLauncher.launch("image/*")
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text("Рисунок от руки")
-                                        Text("Холст для эскизов и схем", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                },
-                                leadingIcon = { Icon(Icons.Filled.Brush, null) },
-                                onClick = {
-                                    showInsertMenu = false
-                                    showDrawingDialog = true
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text("Голосовая запись")
-                                        Text("Записать аудио на диктофон", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                },
-                                leadingIcon = { Icon(Icons.Filled.Mic, null) },
-                                onClick = {
-                                    showInsertMenu = false
-                                    if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-                                        showAudioDialog = true
-                                    } else {
-                                        audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                                    }
-                                }
-                            )
-                        }
-                    }
 
-                    // 2. ФОРМАТИРОВАНИЕ (Formatting Dropdown Menu)
-                    Box {
+                        // 4. ПАЛИТРА ЦВЕТОВ (Color Row Toggle)
                         TooltipIconButton(
-                            onClick = { showFormatMenu = true },
-                            icon = Icons.Filled.TextFormat,
-                            tooltip = "Форматирование текста",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            onClick = { showColorPicker = !showColorPicker },
+                            icon = Icons.Filled.Palette,
+                            tooltip = "Цвет фона заметки",
+                            tint = if (showColorPicker) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        DropdownMenu(
-                            expanded = showFormatMenu,
-                            onDismissRequest = { showFormatMenu = false }
-                        ) {
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text("Жирный текст (**)")
-                                        Text("Выделение важного", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                },
-                                leadingIcon = { Icon(Icons.Filled.FormatBold, null) },
-                                onClick = {
-                                    showFormatMenu = false
-                                    viewModel.appendFormatting("**", "**")
-                                }
+
+                        // 5. ОРГАНИЗАЦИЯ (Organize Dropdown Menu: Folder & Tags)
+                        Box {
+                            TooltipIconButton(
+                                onClick = { showOrganizeMenu = true },
+                                icon = Icons.Filled.FolderOpen,
+                                tooltip = "Папка и теги",
+                                tint = if (state.folder != null || state.tags.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text("Курсивный текст (*)")
-                                        Text("Наклонный шрифт", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            DropdownMenu(
+                                expanded = showOrganizeMenu,
+                                onDismissRequest = { showOrganizeMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Папка")
+                                            Text(if (state.folder != null) "Текущая: ${state.folder}" else "Назначить папку", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Folder, null) },
+                                    onClick = {
+                                        showOrganizeMenu = false
+                                        folderInput = state.folder ?: ""
+                                        showFolderDialog = true
                                     }
-                                },
-                                leadingIcon = { Icon(Icons.Filled.FormatItalic, null) },
-                                onClick = {
-                                    showFormatMenu = false
-                                    viewModel.appendFormatting("*", "*")
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text("Заголовок (# )")
-                                        Text("Крупный заголовок раздела", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Добавить тег")
+                                            Text("Теги для быстрой фильтрации", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Label, null) },
+                                    onClick = {
+                                        showOrganizeMenu = false
+                                        showTagDialog = true
                                     }
-                                },
-                                leadingIcon = { Icon(Icons.Filled.Title, null) },
-                                onClick = {
-                                    showFormatMenu = false
-                                    viewModel.appendFormatting("# ")
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text("Маркированный список (• )")
-                                        Text("Элемент перечисления", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                },
-                                leadingIcon = { Icon(Icons.AutoMirrored.Filled.FormatListBulleted, null) },
-                                onClick = {
-                                    showFormatMenu = false
-                                    viewModel.appendFormatting("• ")
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text("Цитата (> )")
-                                        Text("Блок цитирования", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                },
-                                leadingIcon = { Icon(Icons.Filled.FormatQuote, null) },
-                                onClick = {
-                                    showFormatMenu = false
-                                    viewModel.appendFormatting("> ")
-                                }
-                            )
-                            HorizontalDivider()
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text("Формат листа: ${state.pageFormat.title}")
-                                        Text("Книга, тетрадь в линейку или в клетку", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                },
-                                leadingIcon = { Icon(Icons.Filled.AutoStories, null) },
-                                onClick = {
-                                    showFormatMenu = false
-                                    showPageFormatDialog = true
-                                }
-                            )
+                                )
+                            }
                         }
-                    }
 
-                    // 3. ФОРМАТ ЛИСТА (Book / Ruled / Grid / Kraft / Vintage / etc.)
-                    TooltipIconButton(
-                        onClick = { showPageFormatDialog = true },
-                        icon = when (state.pageFormat) {
-                            PageFormat.BOOK -> Icons.Filled.AutoStories
-                            PageFormat.RULED -> Icons.Filled.FormatAlignJustify
-                            PageFormat.GRID -> Icons.Filled.BorderAll
-                            PageFormat.KRAFT -> Icons.Filled.Style
-                            PageFormat.VINTAGE -> Icons.Filled.Bookmark
-                            PageFormat.MIDNIGHT -> Icons.Filled.DarkMode
-                            PageFormat.BLUEPRINT -> Icons.Filled.Edit
-                            PageFormat.BLANK -> Icons.Filled.Description
-                        },
-                        tooltip = "Формат листа: ${state.pageFormat.title}",
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-
-                    // 4. ПАЛИТРА ЦВЕТОВ (Color Row Toggle)
-                    TooltipIconButton(
-                        onClick = { showColorPicker = !showColorPicker },
-                        icon = Icons.Filled.Palette,
-                        tooltip = "Цвет фона заметки",
-                        tint = if (showColorPicker) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    // 4. ОРГАНИЗАЦИЯ (Organize Dropdown Menu: Folder & Tags)
-                    Box {
+                        // 6. ОТМЕНА (Undo)
                         TooltipIconButton(
-                            onClick = { showOrganizeMenu = true },
-                            icon = Icons.Filled.FolderOpen,
-                            tooltip = "Папка и теги",
-                            tint = if (state.folder != null || state.tags.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            onClick = { viewModel.undo() },
+                            icon = Icons.AutoMirrored.Filled.Undo,
+                            tooltip = "Отменить ввод",
+                            enabled = state.canUndo,
+                            tint = if (state.canUndo) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
                         )
-                        DropdownMenu(
-                            expanded = showOrganizeMenu,
-                            onDismissRequest = { showOrganizeMenu = false }
-                        ) {
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text("Папка")
-                                        Text(if (state.folder != null) "Текущая: ${state.folder}" else "Назначить папку", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                },
-                                leadingIcon = { Icon(Icons.Filled.Folder, null) },
-                                onClick = {
-                                    showOrganizeMenu = false
-                                    folderInput = state.folder ?: ""
-                                    showFolderDialog = true
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text("Добавить тег")
-                                        Text("Теги для быстрой фильтрации", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                },
-                                leadingIcon = { Icon(Icons.Filled.Label, null) },
-                                onClick = {
-                                    showOrganizeMenu = false
-                                    showTagDialog = true
-                                }
-                            )
-                        }
+
+                        // 7. ПОВТОР (Redo)
+                        TooltipIconButton(
+                            onClick = { viewModel.redo() },
+                            icon = Icons.AutoMirrored.Filled.Redo,
+                            tooltip = "Повторить ввод",
+                            enabled = state.canRedo,
+                            tint = if (state.canRedo) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                        )
                     }
                 }
             }
@@ -900,19 +1380,19 @@ fun NoteEditorScreen(
                                 },
                                 fontSize = 22.sp,
                                 fontWeight = FontWeight.Bold,
-                                fontFamily = pageFontFamily,
+                                fontFamily = activeFontFamily,
                                 color = placeholderColor
                             )
                         },
                         textStyle = MaterialTheme.typography.titleLarge.copy(
                             fontSize = if (state.pageFormat == PageFormat.BOOK) 23.sp else 21.sp,
                             fontWeight = FontWeight.Bold,
-                            fontFamily = pageFontFamily,
-                            color = inkColor
+                            fontFamily = activeFontFamily,
+                            color = activeInkColor
                         ),
                         colors = TextFieldDefaults.colors(
-                            focusedTextColor = inkColor,
-                            unfocusedTextColor = inkColor,
+                            focusedTextColor = activeInkColor,
+                            unfocusedTextColor = activeInkColor,
                             focusedPlaceholderColor = placeholderColor,
                             unfocusedPlaceholderColor = placeholderColor,
                             cursorColor = if (state.pageFormat == PageFormat.BOOK) NotebookPalette.BookBookmark else MaterialTheme.colorScheme.primary,
@@ -1131,10 +1611,56 @@ fun NoteEditorScreen(
                                 }
                             }
                         }
+                    } else if (state.isMarkdownPreview) {
+                        // Режим предварительного просмотра Markdown с подсветкой шрифта и цвета
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .defaultMinSize(minHeight = 360.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color.Transparent)
+                        ) {
+                            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp)) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(bottom = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                    ) {
+                                        Text(
+                                            text = "ПРЕДПРОСМОТР ФОРМАТИРОВАНИЯ",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                        )
+                                    }
+                                    TextButton(onClick = { viewModel.toggleMarkdownPreview() }) {
+                                        Icon(Icons.Filled.Edit, null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Редактировать", fontSize = 12.sp)
+                                    }
+                                }
+                                MarkdownRenderer(
+                                    markdownText = if (state.content.isNotBlank()) state.content else "*Заметка пуста. Нажмите «Редактировать», чтобы ввести текст.*",
+                                    textColor = activeInkColor,
+                                    fontFamily = activeFontFamily,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
                     } else {
                         BasicTextField(
-                            value = state.content,
-                            onValueChange = { viewModel.onContentChange(it) },
+                            value = contentTextFieldValue,
+                            onValueChange = { newTfv ->
+                                contentTextFieldValue = newTfv
+                                viewModel.onContentChange(newTfv.text)
+                            },
+                            visualTransformation = remember(activeInkColor) { RichMarkdownVisualTransformation(activeInkColor) },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .defaultMinSize(minHeight = 380.dp)
@@ -1147,15 +1673,15 @@ fun NoteEditorScreen(
                                     }
                                 },
                             textStyle = MaterialTheme.typography.bodyLarge.copy(
-                                fontFamily = pageFontFamily,
+                                fontFamily = activeFontFamily,
                                 fontSize = if (state.pageFormat == PageFormat.BOOK || state.pageFormat == PageFormat.VINTAGE) 17.sp else 16.sp,
                                 lineHeight = if (state.pageFormat == PageFormat.RULED) 34.sp else 30.sp,
-                                color = inkColor
+                                color = activeInkColor
                             ),
                             cursorBrush = SolidColor(if (state.pageFormat == PageFormat.BOOK) NotebookPalette.BookBookmark else if (isDarkPaper) Color.White else MaterialTheme.colorScheme.primary),
                             decorationBox = { innerTextField ->
                                 Box(modifier = Modifier.fillMaxWidth()) {
-                                    if (state.content.isEmpty()) {
+                                    if (contentTextFieldValue.text.isEmpty()) {
                                         Text(
                                             text = when (state.pageFormat) {
                                                 PageFormat.BOOK -> "Начните писать главу книги или мысли..."
@@ -1165,7 +1691,7 @@ fun NoteEditorScreen(
                                                 PageFormat.KRAFT -> "Заметки на крафтовой бумаге..."
                                                 else -> "Текст заметки..."
                                             },
-                                            fontFamily = pageFontFamily,
+                                            fontFamily = activeFontFamily,
                                             color = placeholderColor,
                                             fontSize = if (state.pageFormat == PageFormat.BOOK || state.pageFormat == PageFormat.VINTAGE) 17.sp else 16.sp
                                         )
@@ -1331,6 +1857,24 @@ fun NoteEditorScreen(
             },
             onColorSelect = { hex ->
                 viewModel.onColorChange(hex)
+            }
+        )
+    }
+
+    if (showShareSheet) {
+        ShareNoteBottomSheet(
+            note = state.toDomainNote(),
+            onDismiss = { showShareSheet = false }
+        )
+    }
+
+    if (showFontDigitizerDialog) {
+        CustomFontDigitizerDialog(
+            onDismiss = { showFontDigitizerDialog = false },
+            onFontSelected = { font ->
+                showFontDigitizerDialog = false
+                viewModel.onFontFormatChange(font)
+                Toast.makeText(context, "Применён шрифт: ${font.title}", Toast.LENGTH_SHORT).show()
             }
         )
     }

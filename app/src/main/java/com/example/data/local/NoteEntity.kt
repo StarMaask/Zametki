@@ -23,7 +23,9 @@ data class NoteEntity(
     val audioUri: String?,
     val folder: String?,
     val isLocked: Boolean = false,
-    val pageFormat: String = "BOOK"
+    val pageFormat: String = "BOOK",
+    val fontFormat: String = "DEFAULT",
+    val textColorHex: String = "#1C1B1F"
 ) {
     fun toDomain(): Note {
         return Note(
@@ -43,7 +45,9 @@ data class NoteEntity(
             audioUri = audioUri,
             folder = folder,
             isLocked = isLocked,
-            pageFormat = pageFormat
+            pageFormat = pageFormat,
+            fontFormat = fontFormat,
+            textColorHex = textColorHex
         )
     }
 
@@ -66,7 +70,9 @@ data class NoteEntity(
                 audioUri = note.audioUri,
                 folder = note.folder,
                 isLocked = note.isLocked,
-                pageFormat = note.pageFormat
+                pageFormat = note.pageFormat,
+                fontFormat = note.fontFormat,
+                textColorHex = note.textColorHex
             )
         }
     }
