@@ -2,6 +2,8 @@ package com.example.util
 
 import android.content.Context
 import android.content.Intent
+import android.media.AudioManager
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -14,12 +16,22 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import java.util.Locale
 
+/**
+ * Manager for smooth, uninterrupted continuous speech-to-text transcription.
+ * - Suppresses system audio chimes/beeps during listening sessions.
+ * - Uses generous silence timeouts to prevent premature cutoffs.
+ * - Uses on-device speech recognition when available on Android 12+.
+ * - Resiliently recovers from audio hardware and recognizer timeouts without infinite error loops.
+ */
 class LectureTranscriptionManager(private val context: Context) {
 
     var isRecording by mutableStateOf(false)
         private set
 
     var isPaused by mutableStateOf(false)
+        private set
+
+    var isListening by mutableStateOf(false)
         private set
 
     var durationSeconds by mutableLongStateOf(0L)
@@ -31,6 +43,10 @@ class LectureTranscriptionManager(private val context: Context) {
     private var speechRecognizer: SpeechRecognizer? = null
     private var onTextAppendedCallback: ((String) -> Unit)? = null
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var consecutiveErrors = 0
+
+    // Sound muting state to silence the mic start/stop "beep/ding" audio signal
+    private var wasMuted = false
 
     private val timerRunnable = object : Runnable {
         override fun run() {
@@ -50,27 +66,57 @@ class LectureTranscriptionManager(private val context: Context) {
     }
 
     private val recognitionListener = object : RecognitionListener {
-        override fun onReadyForSpeech(params: Bundle?) {}
+        override fun onReadyForSpeech(params: Bundle?) {
+            isListening = true
+            consecutiveErrors = 0
+        }
 
-        override fun onBeginningOfSpeech() {}
+        override fun onBeginningOfSpeech() {
+            isListening = true
+        }
 
         override fun onRmsChanged(rmsdB: Float) {}
 
         override fun onBufferReceived(buffer: ByteArray?) {}
 
-        override fun onEndOfSpeech() {}
+        override fun onEndOfSpeech() {
+            isListening = false
+        }
 
         override fun onError(error: Int) {
-            // Android SpeechRecognizer stops on silence timeout (ERROR_NO_MATCH, ERROR_SPEECH_TIMEOUT, etc.)
-            // In lecture mode, we automatically restart listening after a tiny pause!
-            if (isRecording && !isPaused) {
+            isListening = false
+            partialHypothesis = ""
+
+            if (!isRecording || isPaused) return
+
+            if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) {
+                stopRecording()
+                return
+            }
+
+            consecutiveErrors++
+
+            // Normal silence pauses (ERROR_NO_MATCH = 7, ERROR_SPEECH_TIMEOUT = 6)
+            val isNormalSilence = error == SpeechRecognizer.ERROR_NO_MATCH ||
+                    error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT
+
+            if (isNormalSilence && consecutiveErrors <= 2) {
+                // Speaker simply paused or took a breath. Clean cancel and smoothly resume listening
+                cleanCancel()
                 mainHandler.removeCallbacks(restartRunnable)
                 mainHandler.postDelayed(restartRunnable, 250)
+            } else {
+                // Recognizer busy (8), client error (5), audio (3), network (1,2,4), or repeated timeouts:
+                // Completely recreate the recognizer so it never gets locked in a busy loop!
+                recreateRecognizerAndRestart(delayMs = 350)
             }
         }
 
         override fun onResults(results: Bundle?) {
+            isListening = false
             partialHypothesis = ""
+            consecutiveErrors = 0
+
             val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
             val recognizedChunk = matches?.firstOrNull()?.trim()
             if (!recognizedChunk.isNullOrBlank()) {
@@ -79,6 +125,7 @@ class LectureTranscriptionManager(private val context: Context) {
             }
 
             if (isRecording && !isPaused) {
+                cleanCancel()
                 mainHandler.removeCallbacks(restartRunnable)
                 mainHandler.postDelayed(restartRunnable, 200)
             }
@@ -87,7 +134,9 @@ class LectureTranscriptionManager(private val context: Context) {
         override fun onPartialResults(partialResults: Bundle?) {
             val partialMatches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
             val partial = partialMatches?.firstOrNull()?.trim() ?: ""
-            partialHypothesis = partial
+            if (partial.isNotBlank()) {
+                partialHypothesis = partial
+            }
         }
 
         override fun onEvent(eventType: Int, params: Bundle?) {}
@@ -103,6 +152,9 @@ class LectureTranscriptionManager(private val context: Context) {
         partialHypothesis = ""
         isPaused = false
         isRecording = true
+        consecutiveErrors = 0
+
+        muteSystemBeeps(true)
 
         mainHandler.removeCallbacks(timerRunnable)
         mainHandler.postDelayed(timerRunnable, 1000)
@@ -116,10 +168,11 @@ class LectureTranscriptionManager(private val context: Context) {
         isPaused = !isPaused
         if (isPaused) {
             partialHypothesis = ""
-            try {
-                speechRecognizer?.stopListening()
-            } catch (_: Exception) {}
+            isListening = false
+            cleanCancel()
+            muteSystemBeeps(false)
         } else {
+            muteSystemBeeps(true)
             safeStartListening()
         }
     }
@@ -127,9 +180,14 @@ class LectureTranscriptionManager(private val context: Context) {
     fun stopRecording() {
         isRecording = false
         isPaused = false
+        isListening = false
         partialHypothesis = ""
+        consecutiveErrors = 0
+
         mainHandler.removeCallbacks(timerRunnable)
         mainHandler.removeCallbacks(restartRunnable)
+
+        muteSystemBeeps(false)
 
         try {
             speechRecognizer?.stopListening()
@@ -139,15 +197,57 @@ class LectureTranscriptionManager(private val context: Context) {
         speechRecognizer = null
     }
 
+    private fun cleanCancel() {
+        try {
+            speechRecognizer?.cancel()
+        } catch (_: Exception) {}
+    }
+
+    private fun createRecognizer(): SpeechRecognizer {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            try {
+                if (SpeechRecognizer.isOnDeviceRecognitionAvailable(context)) {
+                    return SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
+                }
+            } catch (_: Throwable) {}
+        }
+        return SpeechRecognizer.createSpeechRecognizer(context)
+    }
+
     private fun initAndListen() {
         try {
+            cleanCancel()
             speechRecognizer?.destroy()
-            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context)
+            speechRecognizer = createRecognizer()
             speechRecognizer?.setRecognitionListener(recognitionListener)
             safeStartListening()
         } catch (_: Exception) {
             isRecording = false
+            muteSystemBeeps(false)
         }
+    }
+
+    private fun recreateRecognizerAndRestart(delayMs: Long) {
+        mainHandler.removeCallbacks(restartRunnable)
+        mainHandler.postDelayed({
+            if (isRecording && !isPaused) {
+                try {
+                    speechRecognizer?.cancel()
+                    speechRecognizer?.destroy()
+                } catch (_: Exception) {}
+                speechRecognizer = null
+
+                try {
+                    speechRecognizer = createRecognizer()
+                    speechRecognizer?.setRecognitionListener(recognitionListener)
+                    safeStartListening()
+                } catch (_: Exception) {
+                    if (isRecording && !isPaused) {
+                        mainHandler.postDelayed({ recreateRecognizerAndRestart(500) }, 1000)
+                    }
+                }
+            }
+        }, delayMs)
     }
 
     private fun safeStartListening() {
@@ -155,18 +255,55 @@ class LectureTranscriptionManager(private val context: Context) {
         try {
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ru-RU")
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag())
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, Locale.getDefault().toLanguageTag())
+                putExtra(RecognizerIntent.EXTRA_ONLY_RETURN_LANGUAGE_PREFERENCE, false)
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+
+                // Generous timeouts to capture continuous speech without interrupting the speaker:
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 300000L) // 5 minutes continuous session
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 4000L) // 4 sec complete silence before closing chunk
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 3500L) // 3.5 sec pause
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    putExtra(RecognizerIntent.EXTRA_SEGMENTED_SESSION, RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS)
+                }
             }
             speechRecognizer?.startListening(intent)
         } catch (_: Exception) {
-            // If failed to start, re-create and retry
-            mainHandler.postDelayed({
-                if (isRecording && !isPaused) {
-                    initAndListen()
+            recreateRecognizerAndRestart(delayMs = 300)
+        }
+    }
+
+    private fun muteSystemBeeps(mute: Boolean) {
+        try {
+            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+            if (mute) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    audioManager.adjustStreamVolume(AudioManager.STREAM_SYSTEM, AudioManager.ADJUST_MUTE, 0)
+                    audioManager.adjustStreamVolume(AudioManager.STREAM_NOTIFICATION, AudioManager.ADJUST_MUTE, 0)
+                } else {
+                    @Suppress("DEPRECATION")
+                    audioManager.setStreamMute(AudioManager.STREAM_SYSTEM, true)
+                    @Suppress("DEPRECATION")
+                    audioManager.setStreamMute(AudioManager.STREAM_NOTIFICATION, true)
                 }
-            }, 500)
+                wasMuted = true
+            } else if (wasMuted) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    audioManager.adjustStreamVolume(AudioManager.STREAM_SYSTEM, AudioManager.ADJUST_UNMUTE, 0)
+                    audioManager.adjustStreamVolume(AudioManager.STREAM_NOTIFICATION, AudioManager.ADJUST_UNMUTE, 0)
+                } else {
+                    @Suppress("DEPRECATION")
+                    audioManager.setStreamMute(AudioManager.STREAM_SYSTEM, false)
+                    @Suppress("DEPRECATION")
+                    audioManager.setStreamMute(AudioManager.STREAM_NOTIFICATION, false)
+                }
+                wasMuted = false
+            }
+        } catch (_: Exception) {
+            // Silently ignore if ROM restricts audio stream adjustment
         }
     }
 

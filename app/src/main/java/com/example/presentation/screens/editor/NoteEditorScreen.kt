@@ -461,11 +461,11 @@ fun NoteEditorScreen(
                             DropdownMenuItem(
                                 text = {
                                     Column {
-                                        Text(if (lectureManager.isRecording) "Остановить запись лекции" else "Запись лекции (Звук в текст)")
-                                        Text("Непрерывная запись длинных лекций в текст", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(if (lectureManager.isRecording) "Остановить «Звук в текст»" else "Звук в текст (Непрерывная запись)")
+                                        Text(if (lectureManager.isRecording) "Завершить распознавание речи" else "Плавный перевод речи и лекций в текст без прерываний", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 },
-                                leadingIcon = { Icon(Icons.Filled.Mic, null, tint = if (lectureManager.isRecording) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface) },
+                                leadingIcon = { Icon(if (lectureManager.isRecording) Icons.Filled.Stop else Icons.Filled.Mic, null, tint = if (lectureManager.isRecording) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface) },
                                 onClick = {
                                     showTopMenu = false
                                     toggleLectureRecording()
@@ -843,7 +843,7 @@ fun NoteEditorScreen(
                             }
                         }
 
-                        // Запись лекции / Звук в текст
+                        // Звук в текст (Плавная непрерывная запись)
                         FilledTonalButton(
                             onClick = { toggleLectureRecording() },
                             modifier = Modifier.height(34.dp),
@@ -863,7 +863,14 @@ fun NoteEditorScreen(
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text(if (lectureManager.isRecording) "Лекция..." else "Звук в текст", fontSize = 12.sp)
+                            Text(
+                                text = if (lectureManager.isRecording) {
+                                    if (lectureManager.isPaused) "Пауза" else "Запись..."
+                                } else {
+                                    "Звук в текст"
+                                },
+                                fontSize = 12.sp
+                            )
                         }
 
                         // Озвучить текст (Text-to-Speech)
@@ -1454,7 +1461,7 @@ fun NoteEditorScreen(
                 }
             }
 
-            // Continuous Lecture Transcription Active Banner
+            // Smooth Continuous Speech-to-Text Active Banner
             if (lectureManager.isRecording) {
                 Card(
                     modifier = Modifier
@@ -1462,8 +1469,13 @@ fun NoteEditorScreen(
                         .padding(bottom = 12.dp),
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.9f)
-                    )
+                        containerColor = if (lectureManager.isPaused) {
+                            MaterialTheme.colorScheme.surfaceVariant
+                        } else {
+                            MaterialTheme.colorScheme.primaryContainer
+                        }
+                    ),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                 ) {
                     Column(modifier = Modifier.padding(14.dp)) {
                         Row(
@@ -1474,33 +1486,81 @@ fun NoteEditorScreen(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Box(
                                     modifier = Modifier
-                                        .size(12.dp)
+                                        .size(10.dp)
                                         .clip(CircleShape)
-                                        .background(MaterialTheme.colorScheme.error)
+                                        .background(
+                                            if (lectureManager.isPaused) MaterialTheme.colorScheme.outline
+                                            else MaterialTheme.colorScheme.error
+                                        )
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "Запись лекции...",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onErrorContainer
-                                )
+                                Column {
+                                    Text(
+                                        text = "Звук в текст • ${lectureManager.formattedDuration()}",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (lectureManager.isPaused) MaterialTheme.colorScheme.onSurfaceVariant
+                                        else MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                    Text(
+                                        text = if (lectureManager.isPaused) "Запись на паузе"
+                                        else if (lectureManager.isListening) "Слушаю речь..."
+                                        else "Ожидание голоса...",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = if (lectureManager.isPaused) MaterialTheme.colorScheme.outline
+                                        else MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                                    )
+                                }
                             }
-                            Button(
-                                onClick = { toggleLectureRecording() },
-                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                            ) {
-                                Text("Остановить")
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                FilledTonalIconButton(
+                                    onClick = { lectureManager.togglePause() },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (lectureManager.isPaused) Icons.Filled.PlayArrow else Icons.Filled.Pause,
+                                        contentDescription = if (lectureManager.isPaused) "Продолжить" else "Пауза",
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                                Button(
+                                    onClick = { toggleLectureRecording() },
+                                    modifier = Modifier.height(36.dp),
+                                    contentPadding = PaddingValues(horizontal = 10.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                                ) {
+                                    Icon(Icons.Filled.Stop, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Готово", fontSize = 12.sp)
+                                }
                             }
                         }
                         if (lectureManager.partialHypothesis.isNotBlank()) {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = "Слышу: «${lectureManager.partialHypothesis}»",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontStyle = FontStyle.Italic,
-                                color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.9f)
-                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Filled.GraphicEq,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp),
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = lectureManager.partialHypothesis,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontStyle = FontStyle.Italic,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
                         }
                     }
                 }
